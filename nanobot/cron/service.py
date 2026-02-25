@@ -71,11 +71,22 @@ class CronService:
         self.on_job = on_job  # Callback to execute job, returns response text
         self._store: CronStore | None = None
         self._timer_task: asyncio.Task | None = None
+        self._watcher_task: asyncio.Task | None = None
         self._running = False
+        self._last_mtime: float = 0.0
     
-    def _load_store(self) -> CronStore:
+    def _load_store(self, force: bool = False) -> CronStore:
         """Load jobs from disk."""
-        if self._store:
+        # Check if file changed
+        current_mtime = 0.0
+        if self.store_path.exists():
+            try:
+                current_mtime = self.store_path.stat().st_mtime
+            except OSError:
+                pass
+        
+        # Return cached if valid and not forced and not changed
+        if self._store and not force and current_mtime <= self._last_mtime:
             return self._store
         
         if self.store_path.exists():
@@ -112,8 +123,9 @@ class CronService:
                         delete_after_run=j.get("deleteAfterRun", False),
                     ))
                 self._store = CronStore(jobs=jobs)
+                self._last_mtime = current_mtime
             except Exception as e:
-                logger.warning("Failed to load cron store: {}", e)
+                logger.warning(f"Failed to load cron store: {e}")
                 self._store = CronStore()
         else:
             self._store = CronStore()
@@ -163,6 +175,11 @@ class CronService:
         }
         
         self.store_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        
+        try:
+            self._last_mtime = self.store_path.stat().st_mtime
+        except OSError:
+            pass
     
     async def start(self) -> None:
         """Start the cron service."""
@@ -171,7 +188,11 @@ class CronService:
         self._recompute_next_runs()
         self._save_store()
         self._arm_timer()
-        logger.info("Cron service started with {} jobs", len(self._store.jobs if self._store else []))
+        
+        # Start file watcher
+        self._watcher_task = asyncio.create_task(self._watch_file())
+        
+        logger.info(f"Cron service started with {len(self._store.jobs if self._store else [])} jobs")
     
     def stop(self) -> None:
         """Stop the cron service."""
@@ -179,6 +200,26 @@ class CronService:
         if self._timer_task:
             self._timer_task.cancel()
             self._timer_task = None
+        if self._watcher_task:
+            self._watcher_task.cancel()
+            self._watcher_task = None
+            
+    async def _watch_file(self) -> None:
+        """Watch for file changes and reload."""
+        while self._running:
+            await asyncio.sleep(2.0)
+            if not self.store_path.exists():
+                continue
+            
+            try:
+                mtime = self.store_path.stat().st_mtime
+                if mtime > self._last_mtime:
+                    logger.info("Cron store changed on disk, reloading...")
+                    self._load_store(force=True)
+                    self._recompute_next_runs()
+                    self._arm_timer()
+            except Exception as e:
+                logger.warning(f"Error watching cron store: {e}")
     
     def _recompute_next_runs(self) -> None:
         """Recompute next run times for all enabled jobs."""
