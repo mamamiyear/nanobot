@@ -235,6 +235,9 @@ class AgentLoop:
                 "without completing the task. You can try breaking the task into smaller steps."
             )
 
+        if final_content:
+            messages.append({"role": "assistant", "content": final_content})
+
         return final_content, tools_used, messages
 
     async def run(self) -> None:
@@ -406,6 +409,7 @@ class AgentLoop:
 
         if final_content is None:
             final_content = "I've completed processing but have no response to give."
+            all_msgs.append({"role": "assistant", "content": final_content})
 
         preview = final_content[:120] + "..." if len(final_content) > 120 else final_content
         logger.info("Response to {}:{}: {}", msg.channel, msg.sender_id, preview)
