@@ -241,6 +241,12 @@ class LiteLLMProvider(LLMProvider):
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
 
+        from loguru import logger
+        import json
+        # logger.debug("Request: {}", kwargs)
+        with open("tmp.request.json", "w") as f:
+            json.dump(kwargs, f, indent=2)
+
         try:
             response = await acompletion(**kwargs)
             return self._parse_response(response)

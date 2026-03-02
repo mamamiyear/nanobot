@@ -92,12 +92,13 @@ class SessionManager:
         safe_key = safe_filename(key.replace(":", "_"))
         return self.legacy_sessions_dir / f"{safe_key}.jsonl"
 
-    def get_or_create(self, key: str) -> Session:
+    def get_or_create(self, key: str, metadata: dict[str, Any] = None) -> Session:
         """
         Get an existing session or create a new one.
 
         Args:
             key: Session key (usually channel:chat_id).
+            metadata: Optional metadata to initialize the session with.
 
         Returns:
             The session.
@@ -107,7 +108,7 @@ class SessionManager:
 
         session = self._load(key)
         if session is None:
-            session = Session(key=key)
+            session = Session(key=key, metadata=metadata or {})
 
         self._cache[key] = session
         return session

@@ -31,6 +31,7 @@ try:
         GetMessageResourceRequest,
         P2ImMessageReceiveV1,
     )
+    from lark_oapi.api.contact.v3 import GetUserRequest
     FEISHU_AVAILABLE = True
 except ImportError:
     FEISHU_AVAILABLE = False
@@ -662,6 +663,43 @@ class FeishuChannel(BaseChannel):
         except Exception as e:
             logger.error("Error sending Feishu message: {}", e)
 
+    def _get_user_info_sync(self, user_id: str) -> dict:
+        """Get user info from Feishu synchronously."""
+        try:
+            request = GetUserRequest.builder() \
+                .user_id_type("open_id") \
+                .user_id(user_id) \
+                .build()
+
+            response = self._client.contact.v3.user.get(request)
+
+            if not response.success():
+                logger.warning("Failed to get user info: code={}, msg={}", response.code, response.msg)
+                return {}
+
+            user = response.data.user
+            if not user:
+                return {}
+
+            # Safely extract avatar
+            avatar_url = ""
+            if hasattr(user, "avatar") and user.avatar:
+                avatar_url = getattr(user.avatar, "avatar_72", "")
+
+            feishu_user_info = {
+                "name": getattr(user, "name", "Unknown"),
+                "en_name": getattr(user, "en_name", ""),
+                # "avatar": avatar_url,
+                "city": getattr(user, "city", ""),
+                "country": getattr(user, "country", ""),
+                # "gender": getattr(user, "gender", ""),
+            }
+            logger.debug("Feishu user info: {}", feishu_user_info)
+            return feishu_user_info
+        except Exception as e:
+            logger.warning("Error getting user info: {}", e)
+            return {}
+
     def _on_message_sync(self, data: "P2ImMessageReceiveV1") -> None:
         """
         Sync handler for incoming messages (called from WebSocket thread).
@@ -746,8 +784,17 @@ class FeishuChannel(BaseChannel):
             if not content and not media_paths:
                 return
 
+            # Get user info
+            user_info = await asyncio.get_running_loop().run_in_executor(
+                None, self._get_user_info_sync, sender_id
+            )
+
             # Forward to message bus
             reply_to = chat_id if chat_type == "group" else sender_id
+            
+            # Construct session key based on chat_id and sender_id
+            session_key = f"{self.name}:{chat_id}:{sender_id}"
+
             await self._handle_message(
                 sender_id=sender_id,
                 chat_id=reply_to,
@@ -757,7 +804,9 @@ class FeishuChannel(BaseChannel):
                     "message_id": message_id,
                     "chat_type": chat_type,
                     "msg_type": msg_type,
-                }
+                    "user_info": user_info,
+                },
+                session_key=session_key,
             )
 
         except Exception as e:

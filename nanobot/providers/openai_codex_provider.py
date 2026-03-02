@@ -35,6 +35,8 @@ class OpenAICodexProvider(LLMProvider):
     ) -> LLMResponse:
         model = model or self.default_model
         system_prompt, input_items = _convert_messages(messages)
+        logger.debug("System prompt: {}", system_prompt)
+        logger.debug("Input items: {}", input_items)
 
         token = await asyncio.to_thread(get_codex_token)
         headers = _build_headers(token.account_id, token.access)
