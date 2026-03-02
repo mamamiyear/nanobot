@@ -184,8 +184,8 @@ class AgentLoop:
             val = next(iter(args.values()), None) if isinstance(args, dict) else None
             if not isinstance(val, str):
                 return tc.name
-            return f'{tc.name}("{val[:40]}…")' if len(val) > 40 else f'{tc.name}("{val}")'
-        return ", ".join(_fmt(tc) for tc in tool_calls)
+            return f'{tc.name}("{val[:200]}…")' if len(val) > 200 else f'{tc.name}("{val}")'
+        return ", ".join(_fmt(tc) for tc in tool_calls if tc.name != "message")
 
     def _status_response(self, msg: InboundMessage, session: Session) -> OutboundMessage:
         """Build an outbound status message for a session."""
@@ -535,6 +535,8 @@ class AgentLoop:
         )
 
         async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
+            if not content:
+                return
             meta = dict(msg.metadata or {})
             meta["_progress"] = True
             meta["_tool_hint"] = tool_hint
