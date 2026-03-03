@@ -656,6 +656,7 @@ def _run_gateway(
         tools_config=config.tools,
         provider_snapshot_loader=load_provider_snapshot,
         provider_signature=provider_snapshot.signature,
+        feishu_doc_config=config.tools.feishu_doc,
     )
 
     from nanobot.agent.loop import UNIFIED_SESSION_KEY
@@ -1047,6 +1048,7 @@ def agent(
         consolidation_ratio=config.agents.defaults.consolidation_ratio,
         max_messages=config.agents.defaults.max_messages,
         tools_config=config.tools,
+        feishu_doc_config=config.tools.feishu_doc,
     )
     restart_notice = consume_restart_notice_from_env()
     if restart_notice and should_show_cli_restart_notice(restart_notice, session_id):

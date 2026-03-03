@@ -234,6 +234,20 @@ class MyToolConfig(Base):
     allow_set: bool = False  # let `my` modify loop state (read-only if False)
 
 
+class FeishuDocConfig(Base):
+    """Feishu doc tool configuration."""
+
+    app_id: str = ""
+    app_secret: str = ""
+
+
+class FeishuDocConfig(Base):
+    """Feishu doc tool configuration."""
+
+    app_id: str = ""
+    app_secret: str = ""
+
+
 class ToolsConfig(Base):
     """Tools configuration."""
 
@@ -243,6 +257,7 @@ class ToolsConfig(Base):
     restrict_to_workspace: bool = False  # restrict all tool access to workspace directory
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
     ssrf_whitelist: list[str] = Field(default_factory=list)  # CIDR ranges to exempt from SSRF blocking (e.g. ["100.64.0.0/10"] for Tailscale)
+    feishu_doc: FeishuDocConfig = Field(default_factory=FeishuDocConfig)
 
 
 class Config(BaseSettings):
