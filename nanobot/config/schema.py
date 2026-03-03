@@ -151,6 +151,20 @@ class MCPServerConfig(Base):
     tool_timeout: int = 30  # seconds before a tool call is cancelled
     enabled_tools: list[str] = Field(default_factory=lambda: ["*"])  # Only register these tools; accepts raw MCP names or wrapped mcp_<server>_<tool> names; ["*"] = all tools; [] = no tools
 
+class FeishuDocConfig(Base):
+    """Feishu doc tool configuration."""
+
+    app_id: str = ""
+    app_secret: str = ""
+
+
+class FeishuDocConfig(Base):
+    """Feishu doc tool configuration."""
+
+    app_id: str = ""
+    app_secret: str = ""
+
+
 class ToolsConfig(Base):
     """Tools configuration."""
 
@@ -158,6 +172,7 @@ class ToolsConfig(Base):
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
+    feishu_doc: FeishuDocConfig = Field(default_factory=FeishuDocConfig)
 
 
 class Config(BaseSettings):
