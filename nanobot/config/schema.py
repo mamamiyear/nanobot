@@ -313,6 +313,13 @@ class MCPServerConfig(Base):
     tool_timeout: int = 30  # Seconds before a tool call is cancelled
 
 
+class FeishuDocConfig(Base):
+    """Feishu doc tool configuration."""
+
+    app_id: str = ""
+    app_secret: str = ""
+
+
 class ToolsConfig(Base):
     """Tools configuration."""
 
@@ -320,6 +327,7 @@ class ToolsConfig(Base):
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
+    feishu_doc: FeishuDocConfig = Field(default_factory=FeishuDocConfig)
 
 
 class Config(BaseSettings):
