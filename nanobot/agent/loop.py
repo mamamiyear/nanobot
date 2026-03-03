@@ -17,6 +17,7 @@ from nanobot.agent.context import ContextBuilder
 from nanobot.agent.memory import MemoryConsolidator
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.cron import CronTool
+from nanobot.agent.tools.feishu_doc import FeishuDocTool
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
         ExecToolConfig,
         ModelConfig,
         WebSearchConfig,
+        FeishuDocConfig,
     )
     from nanobot.cron.service import CronService
 
@@ -72,11 +74,13 @@ class AgentLoop:
         models: list["ModelConfig"] | None = None,
         provider_factory: Callable[..., LLMProvider] | None = None,
         default_config: "AgentDefaults | None" = None,
+        feishu_doc_config: FeishuDocConfig | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig, WebSearchConfig
 
         self.bus = bus
         self.channels_config = channels_config
+        self.feishu_doc_config = feishu_doc_config
         self.provider = provider
         self.workspace = workspace
         self.model = model or provider.get_default_model()
@@ -140,6 +144,23 @@ class AgentLoop:
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
+
+        # Check for feishu doc configuration (preferred)
+        if self.feishu_doc_config and self.feishu_doc_config.app_id:
+            logger.debug("Feishu doc tool enabled with app_id: {}", self.feishu_doc_config.app_id)
+            self.tools.register(FeishuDocTool(
+                app_id=self.feishu_doc_config.app_id,
+                app_secret=self.feishu_doc_config.app_secret
+            ))
+        # Fallback to channels config (deprecated)
+        elif self.channels_config and self.channels_config.feishu.app_id:
+            logger.debug("Feishu doc tool enabled with app_id: {}", self.channels_config.feishu.app_id)
+            self.tools.register(FeishuDocTool(
+                app_id=self.channels_config.feishu.app_id,
+                app_secret=self.channels_config.feishu.app_secret
+            ))
+        else:
+            logger.debug("Feishu doc tool disabled")
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""

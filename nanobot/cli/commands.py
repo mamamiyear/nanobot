@@ -452,6 +452,7 @@ def gateway(
         models=config.agents.defaults.models,
         provider_factory=lambda **kwargs: _make_provider(config, **kwargs),
         default_config=config.agents.defaults,
+        feishu_doc_config=config.tools.feishu_doc,
     )
 
     # Set cron callback (needs agent)
