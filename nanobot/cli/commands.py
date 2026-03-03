@@ -671,6 +671,7 @@ def gateway(
         session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        feishu_doc_config=config.tools.feishu_doc,
     )
 
     # Set cron callback (needs agent)
@@ -872,6 +873,7 @@ def agent(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        feishu_doc_config=config.tools.feishu_doc,
     )
 
     # Shared reference for progress callbacks
