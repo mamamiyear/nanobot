@@ -152,11 +152,10 @@ class FeishuDocConfig(Base):
     app_secret: str = ""
 
 
-class FeishuDocConfig(Base):
-    """Feishu doc tool configuration."""
+class TodoToolConfig(Base):
+    """Todo tool configuration."""
 
-    app_id: str = ""
-    app_secret: str = ""
+    base_dir: Path = ""
 
 
 class ToolsConfig(Base):
@@ -167,6 +166,7 @@ class ToolsConfig(Base):
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
     feishu_doc: FeishuDocConfig = Field(default_factory=FeishuDocConfig)
+    todo: TodoToolConfig = Field(default_factory=TodoToolConfig)
 
 
 class Config(BaseSettings):
