@@ -24,6 +24,7 @@ from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
+from nanobot.agent.tools.todo import TodoTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.command import CommandContext, CommandRouter, register_builtin_commands
@@ -32,7 +33,7 @@ from nanobot.providers.base import LLMProvider
 from nanobot.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
-    from nanobot.config.schema import ChannelsConfig, ExecToolConfig, WebSearchConfig, FeishuDocConfig
+    from nanobot.config.schema import ChannelsConfig, ExecToolConfig, WebSearchConfig, FeishuDocConfig, TodoToolConfig
     from nanobot.cron.service import CronService
 
 
@@ -68,6 +69,7 @@ class AgentLoop:
         channels_config: ChannelsConfig | None = None,
         timezone: str | None = None,
         feishu_doc_config: FeishuDocConfig | None = None,
+        todo_config: TodoToolConfig | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig, WebSearchConfig
 
@@ -124,6 +126,7 @@ class AgentLoop:
             max_completion_tokens=provider.generation.max_tokens,
         )
         self.feishu_doc_config = feishu_doc_config
+        self.todo_config = todo_config
         self._register_default_tools()
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
@@ -144,6 +147,7 @@ class AgentLoop:
             ))
         self.tools.register(WebSearchTool(config=self.web_search_config, proxy=self.web_proxy))
         self.tools.register(WebFetchTool(proxy=self.web_proxy))
+        self.tools.register(TodoTool(base_dir=self.todo_config.base_dir if self.todo_config else None))
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
