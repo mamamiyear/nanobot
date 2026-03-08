@@ -453,6 +453,7 @@ def gateway(
         provider_factory=lambda **kwargs: _make_provider(config, **kwargs),
         default_config=config.agents.defaults,
         feishu_doc_config=config.tools.feishu_doc,
+        todo_config=config.tools.todo,
     )
 
     # Set cron callback (needs agent)
@@ -647,6 +648,8 @@ def agent(
         models=config.agents.defaults.models,
         provider_factory=lambda **kwargs: _make_provider(config, **kwargs),
         default_config=config.agents.defaults,
+        feishu_doc_config=config.tools.feishu_doc,
+        todo_config=config.tools.todo,
     )
 
     # Show spinner when logs are off (no output to miss); skip when logs are on
