@@ -663,6 +663,7 @@ def gateway(
         channels_config=config.channels,
         feishu_doc_config=config.tools.feishu_doc,
         todo_config=config.tools.todo,
+        knowledge_config=config.knowledge,
     )
 
     # Set cron callback (needs agent)
@@ -858,6 +859,7 @@ def agent(
         channels_config=config.channels,
         feishu_doc_config=config.tools.feishu_doc,
         todo_config=config.tools.todo,
+        knowledge_config=config.knowledge,
     )
 
     # Shared reference for progress callbacks
