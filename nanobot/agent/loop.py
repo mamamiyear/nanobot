@@ -37,6 +37,7 @@ from nanobot.agent.tools.search import GlobTool, GrepTool
 from nanobot.agent.tools.self import MyTool
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
+from nanobot.agent.tools.todo import TodoTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
@@ -57,7 +58,7 @@ from nanobot.utils.progress_events import (
 from nanobot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
 
 if TYPE_CHECKING:
-    from nanobot.config.schema import ChannelsConfig, ExecToolConfig, ToolsConfig, WebToolsConfig, WebSearchConfig, FeishuDocConfig
+    from nanobot.config.schema import ChannelsConfig, ExecToolConfig, ToolsConfig, WebToolsConfig, WebSearchConfig, FeishuDocConfig, TodoToolConfig
     from nanobot.cron.service import CronService
 
 
@@ -211,6 +212,7 @@ class AgentLoop:
         provider_snapshot_loader: Callable[[], ProviderSnapshot] | None = None,
         provider_signature: tuple[object, ...] | None = None,
         feishu_doc_config: FeishuDocConfig | None = None,
+        todo_config: TodoToolConfig | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig, ToolsConfig, WebToolsConfig
 
@@ -302,6 +304,7 @@ class AgentLoop:
             model=self.model,
         )
         self.feishu_doc_config = feishu_doc_config
+        self.todo_config = todo_config
         self._register_default_tools()
         if _tc.my.enable:
             self.tools.register(MyTool(loop=self, modify_allowed=_tc.my.allow_set))
@@ -384,6 +387,7 @@ class AgentLoop:
                 )
             )
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound, workspace=self.workspace))
+        self.tools.register(TodoTool(base_dir=self.todo_config.base_dir if self.todo_config else None))
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
             self.tools.register(

@@ -241,11 +241,10 @@ class FeishuDocConfig(Base):
     app_secret: str = ""
 
 
-class FeishuDocConfig(Base):
-    """Feishu doc tool configuration."""
+class TodoToolConfig(Base):
+    """Todo tool configuration."""
 
-    app_id: str = ""
-    app_secret: str = ""
+    base_dir: Path = ""
 
 
 class ToolsConfig(Base):
@@ -258,6 +257,7 @@ class ToolsConfig(Base):
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
     ssrf_whitelist: list[str] = Field(default_factory=list)  # CIDR ranges to exempt from SSRF blocking (e.g. ["100.64.0.0/10"] for Tailscale)
     feishu_doc: FeishuDocConfig = Field(default_factory=FeishuDocConfig)
+    todo: TodoToolConfig = Field(default_factory=TodoToolConfig)
 
 
 class Config(BaseSettings):
