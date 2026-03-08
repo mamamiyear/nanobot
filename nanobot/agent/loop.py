@@ -24,9 +24,12 @@ from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.todo import TodoTool
+from nanobot.agent.tools.knowledge import KnowledgeTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
+from nanobot.config.schema import ExecToolConfig
+from nanobot.knowledge.base import get_knowledge_base
 from nanobot.providers.base import LLMProvider
 from nanobot.session.manager import Session, SessionManager
 
@@ -39,6 +42,7 @@ if TYPE_CHECKING:
         WebSearchConfig,
         FeishuDocConfig,
         TodoToolConfig,
+        KnowledgeBaseConfig,
     )
     from nanobot.cron.service import CronService
 
@@ -78,13 +82,13 @@ class AgentLoop:
         default_config: "AgentDefaults | None" = None,
         feishu_doc_config: FeishuDocConfig | None = None,
         todo_config: TodoToolConfig | None = None,
+        knowledge_config: KnowledgeBaseConfig | None = None,
     ):
-        from nanobot.config.schema import ExecToolConfig, WebSearchConfig
-
         self.bus = bus
         self.channels_config = channels_config
         self.feishu_doc_config = feishu_doc_config
         self.todo_config = todo_config
+        self.knowledge_config = knowledge_config
         self.provider = provider
         self.workspace = workspace
         self.model = model or provider.get_default_model()
@@ -129,6 +133,8 @@ class AgentLoop:
             build_messages=self.context.build_messages,
             get_tool_definitions=self.tools.get_definitions,
         )
+        self.knowledge_base = None
+        self.knowledge_coll = None
         self._register_default_tools()
 
     def _register_default_tools(self) -> None:
@@ -150,6 +156,13 @@ class AgentLoop:
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
 
+        if self.knowledge_config and self.knowledge_config.enabled:
+            self.knowledge_base = get_knowledge_base(self.knowledge_config)
+            collection_name = self.knowledge_config.collection_name if self.knowledge_config else "default"
+            logger.debug("Knowledge base collection type: {}, name: {}", self.knowledge_config.provider, collection_name)
+            if self.knowledge_base:
+                self.tools.register(KnowledgeTool(self.knowledge_base, collection_name=collection_name))
+
         # Check for feishu doc configuration (preferred)
         if self.feishu_doc_config and self.feishu_doc_config.app_id:
             logger.debug("Feishu doc tool enabled with app_id: {}", self.feishu_doc_config.app_id)
@@ -166,6 +179,16 @@ class AgentLoop:
             ))
         else:
             logger.debug("Feishu doc tool disabled")
+
+    async def _init_knowledge_base(self) -> None:
+        """Initialize knowledge base collection asynchronously."""
+        if self.knowledge_base and not self.knowledge_coll:
+            collection_name = self.knowledge_config.collection_name if self.knowledge_config else "default"
+            try:
+                self.knowledge_coll = await self.knowledge_base.get_collection(collection_name)
+                logger.debug("Knowledge base collection initialized: {}", collection_name)
+            except Exception as e:
+                logger.error("Failed to initialize knowledge collection: {}", e)
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
@@ -395,6 +418,7 @@ class AgentLoop:
         """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
         self._running = True
         await self._connect_mcp()
+        await self._init_knowledge_base()
         logger.info("Agent loop started")
 
         while self._running:
@@ -489,6 +513,7 @@ class AgentLoop:
         on_progress: Callable[[str], Awaitable[None]] | None = None,
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
+
         # System messages: parse origin from chat_id ("channel:chat_id")
         if msg.channel == "system":
             channel, chat_id = (msg.chat_id.split(":", 1) if ":" in msg.chat_id
@@ -557,12 +582,24 @@ class AgentLoop:
             if isinstance(message_tool, MessageTool):
                 message_tool.start_turn()
 
+        # Knowledge Base Search
+        knowledges = []
+        if self.knowledge_coll and msg.content.strip():
+            try:
+                results = await self.knowledge_coll.search(msg.content, top_k=self.knowledge_config.top_k)
+                if results:
+                    knowledges = [r.document.content for r in results]
+                    logger.info(f"Knowledge base search for query '{msg.content}' results: {knowledges}")
+            except Exception as e:
+                logger.error(f"Knowledge base search failed: {e}")
+
         history = session.get_history(max_messages=0)
         initial_messages = self.context.build_messages(
             history=history,
             current_message=msg.content,
             media=msg.media if msg.media else None,
             channel=msg.channel, chat_id=msg.chat_id,
+            knowledges=knowledges,
         )
 
         async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
@@ -641,6 +678,7 @@ class AgentLoop:
     ) -> str:
         """Process a message directly (for CLI or cron usage)."""
         await self._connect_mcp()
+        await self._init_knowledge_base()
         msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
         response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
         return response.content if response else ""

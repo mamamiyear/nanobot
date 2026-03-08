@@ -176,6 +176,40 @@ class ToolsConfig(Base):
     todo: TodoToolConfig = Field(default_factory=TodoToolConfig)
 
 
+class BasicKnowledgeBaseConfig(Base):
+    """Basic knowledge base configuration."""
+
+    persist_path: Path = ""
+
+
+class SeekDBKnowledgeBaseConfig(Base):
+    """SeekDB knowledge base configuration."""
+
+    persist_path: Path = ""
+
+
+class VolcengineKnowledgeBaseConfig(Base):
+    """Volcengine knowledge base configuration."""
+
+    access_key: str = ""
+    secret_key: str = ""
+    region: str = "cn-beijing"
+    host: str = "api-knowledgebase.mlp.cn-beijing.volces.com"
+    project: str = "default"
+
+
+class KnowledgeBaseConfig(Base):
+    """Knowledge base configuration."""
+
+    enabled: bool = False
+    provider: Literal["basic", "seekdb", "volcengine"] = "basic"
+    top_k: int = 5
+    collection_name: str = "default"
+    basic: BasicKnowledgeBaseConfig = Field(default_factory=BasicKnowledgeBaseConfig)
+    seekdb: SeekDBKnowledgeBaseConfig = Field(default_factory=SeekDBKnowledgeBaseConfig)
+    volcengine: VolcengineKnowledgeBaseConfig = Field(default_factory=VolcengineKnowledgeBaseConfig)
+
+
 class Config(BaseSettings):
     """Root configuration for nanobot."""
 
@@ -184,6 +218,7 @@ class Config(BaseSettings):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    knowledge: KnowledgeBaseConfig = Field(default_factory=KnowledgeBaseConfig)
 
     @property
     def workspace_path(self) -> Path:

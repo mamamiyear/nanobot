@@ -454,6 +454,7 @@ def gateway(
         default_config=config.agents.defaults,
         feishu_doc_config=config.tools.feishu_doc,
         todo_config=config.tools.todo,
+        knowledge_config=config.knowledge,
     )
 
     # Set cron callback (needs agent)
@@ -650,6 +651,7 @@ def agent(
         default_config=config.agents.defaults,
         feishu_doc_config=config.tools.feishu_doc,
         todo_config=config.tools.todo,
+        knowledge_config=config.knowledge,
     )
 
     # Show spinner when logs are off (no output to miss); skip when logs are on

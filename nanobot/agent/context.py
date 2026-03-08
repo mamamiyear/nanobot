@@ -126,11 +126,13 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         media: list[str] | None = None,
         channel: str | None = None,
         chat_id: str | None = None,
+        knowledges: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Build the complete message list for an LLM call."""
         runtime_ctx = self._build_runtime_context(channel, chat_id)
         user_content = self._build_user_content(current_message, media)
-
+        knowledge_context = self._build_knowledge_context(knowledges)
+        
         # Merge runtime context and user content into a single user message
         # to avoid consecutive same-role messages that some providers reject.
         if isinstance(user_content, str):
@@ -138,11 +140,17 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         else:
             merged = [{"type": "text", "text": runtime_ctx}] + user_content
 
-        return [
+        messages = [
             {"role": "system", "content": self.build_system_prompt(skill_names)},
-            *history,
-            {"role": "user", "content": merged},
         ]
+        
+        if knowledges:
+            messages.append({"role": "system", "content": knowledge_context})
+
+        messages.extend(history)
+        messages.append({"role": "user", "content": merged})
+        
+        return messages
 
     def _build_user_content(self, text: str, media: list[str] | None) -> str | list[dict[str, Any]]:
         """Build user message content with optional base64-encoded images."""
@@ -165,6 +173,16 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         if not images:
             return text
         return images + [{"type": "text", "text": text}]
+
+    def _build_knowledge_context(self, knowledges: list[str] | None) -> str:
+        """Build knowledge context from search results."""
+        if not knowledges:
+            return ""
+        docs = "\n".join([f"- {k}" for k in knowledges])
+        ctx = f"# Retrieved Knowledge\n\n" \
+        "The following information was retrieved from the knowledge base " \
+        f"and may be relevant to the user's request:\n\n{docs}"
+        return ctx
 
     def add_tool_result(
         self, messages: list[dict[str, Any]],
