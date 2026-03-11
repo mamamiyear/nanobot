@@ -96,6 +96,8 @@ class WebSearchTool(Tool):
             return await self._search_searxng(query, n)
         elif provider == "jina":
             return await self._search_jina(query, n)
+        elif provider == "aliyun":
+            return await self._execute_aliyun(query, n)
         elif provider == "brave":
             return await self._search_brave(query, n)
         else:
@@ -203,6 +205,105 @@ class WebSearchTool(Tool):
         except Exception as e:
             logger.warning("DuckDuckGo search failed: {}", e)
             return f"Error: DuckDuckGo search failed ({e})"
+
+    async def _execute_aliyun(self, query: str, count: int | None = None, **kwargs: Any) -> str:
+        """Execute search using Aliyun Bailian MCP (JSON-RPC 2.0)."""
+        api_key = self.config.api_key or os.environ.get("ALIYUN_MCP_API_KEY", "")
+        if not api_key:
+            logger.warning("ALIYUN_MCP_API_KEY not set, falling back to DuckDuckGo")
+            return await self._search_duckduckgo(query, n)
+
+        base_url = (self.config.base_url or os.environ.get("ALIYUN_CS_ENDPOINT", "")).strip().strip("/")
+        base_url = base_url if base_url else "https://dashscope.aliyuncs.com"
+        endpoint = base_url + "/api/v1/mcps/WebSearch/mcp"
+        if not endpoint:
+            return (
+                "Error: Aliyun MCP Endpoint not configured. Set it in "
+                "~/.nanobot/config.json under tools.web.search.aliyunEndpoint "
+                "(or export ALIYUN_MCP_ENDPOINT)."
+            )
+
+        try:
+            n = min(max(count or self.max_results, 1), 10)
+            logger.debug("AliyunWebSearch: calling {} (proxy: {})", endpoint, "yes" if self.proxy else "no")
+
+            # Construct JSON-RPC 2.0 payload for MCP tools/call
+            payload = {
+                "jsonrpc": "2.0",
+                "method": "tools/call",
+                "params": {
+                    "name": "bailian_web_search",  # Specific tool name for Aliyun WebSearch MCP
+                    "arguments": {
+                        "query": query,
+                        "count": n
+                    }
+                },
+                "id": 1
+            }
+
+            async with httpx.AsyncClient(proxy=self.proxy, timeout=30.0) as client:
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "User-Agent": USER_AGENT
+                }
+
+                r = await client.post(endpoint, json=payload, headers=headers)
+
+                if r.status_code != 200:
+                    logger.error("AliyunWebSearch failed: {} {}", r.status_code, r.text)
+                    return f"Error: Aliyun search failed with status {r.status_code}. Response: {r.text[:200]}"
+
+                response_data = r.json()
+
+                # Check for JSON-RPC error
+                if "error" in response_data:
+                    return f"Error: Aliyun MCP JSON-RPC error: {response_data['error']}"
+
+                # Parse MCP result
+                # Expected format: {"result": {"content": [{"type": "text", "text": "..."}], "isError": false}}
+                result = response_data.get("result", {})
+                if result.get("isError"):
+                    content = result.get("content", [])
+                    error_msg = content[0].get("text") if content and isinstance(content, list) else "Unknown error"
+                    return f"Error: Aliyun MCP tool execution failed: {error_msg}"
+
+                content_list = result.get("content", [])
+                if not content_list:
+                    return f"No results for: {query}"
+
+                # Combine all text content
+                full_text = ""
+                for item in content_list:
+                    if item.get("type") == "text":
+                        full_text += item.get("text", "") + "\n"
+
+                full_text = full_text.strip()
+
+                # Try to parse Aliyun's specific JSON output format
+                try:
+                    data = json.loads(full_text)
+                    if isinstance(data, dict) and "pages" in data:
+                        lines = [f"Results for: {query}\n"]
+                        for i, item in enumerate(data["pages"], 1):
+                            title = item.get('title', 'No Title')
+                            url = item.get('url', '')
+                            snippet = item.get('snippet', '')
+                            lines.append(f"{i}. {title}\n   {url}")
+                            if snippet:
+                                lines.append(f"   {snippet}")
+                        return "\n".join(lines)
+                except json.JSONDecodeError:
+                    pass
+
+                return full_text
+
+        except httpx.ProxyError as e:
+            logger.error("AliyunWebSearch proxy error: {}", e)
+            return f"Proxy error: {e}"
+        except Exception as e:
+            logger.error("AliyunWebSearch error: {}", e)
+            return f"Error: {e}"
 
 
 class WebFetchTool(Tool):
