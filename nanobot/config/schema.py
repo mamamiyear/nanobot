@@ -27,6 +27,15 @@ class ChannelsConfig(Base):
     send_tool_hints: bool = False  # stream tool-call hints (e.g. read_file("…"))
 
 
+class ModelConfig(Base):
+    """Configuration for a fallback model."""
+
+    model: str
+    provider: str = "auto"
+    max_tokens: int | None = None
+    context_window_tokens: int | None = None
+
+
 class AgentDefaults(Base):
     """Default agent configuration."""
 
@@ -37,6 +46,7 @@ class AgentDefaults(Base):
     )
     max_tokens: int = 8192
     context_window_tokens: int = 65_536
+    models: list[ModelConfig] = Field(default_factory=list)
     temperature: float = 0.1
     max_tool_iterations: int = 40
     # Deprecated compatibility field: accepted from old configs but ignored at runtime.

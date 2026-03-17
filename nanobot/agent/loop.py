@@ -63,6 +63,9 @@ class AgentLoop:
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
+        models: list[Any] | None = None,
+        provider_factory: Callable[..., LLMProvider] | None = None,
+        default_config: Any | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig, WebSearchConfig
 
@@ -71,6 +74,9 @@ class AgentLoop:
         self.provider = provider
         self.workspace = workspace
         self.model = model or provider.get_default_model()
+        self.models = models or []
+        self.provider_factory = provider_factory
+        self.default_config = default_config
         self.max_iterations = max_iterations
         self.context_window_tokens = context_window_tokens
         self.web_search_config = web_search_config or WebSearchConfig()
@@ -186,17 +192,87 @@ class AgentLoop:
         iteration = 0
         final_content = None
         tools_used: list[str] = []
+        
+        # Local state for the current session/task execution
+        current_provider = self.provider
+        current_model = self.model
+        available_fallbacks = list(self.models)
 
         while iteration < self.max_iterations:
             iteration += 1
 
             tool_defs = self.tools.get_definitions()
 
-            response = await self.provider.chat_with_retry(
-                messages=messages,
-                tools=tool_defs,
-                model=self.model,
-            )
+            try:
+                response = await current_provider.chat_with_retry(
+                    messages=messages,
+                    tools=tool_defs,
+                    model=current_model,
+                )
+            except Exception as e:
+                response = None
+                logger.error("LLM provider raised unhandled exception: {}", e)
+
+            # If provider fails (finish_reason == "error" or unhandled exception)
+            if response is None or response.finish_reason == "error":
+                err_msg = getattr(response, "content", None) or "Unknown provider error"
+                logger.warning("Provider call failed: {}", err_msg)
+                
+                # Attempt to fallback if we have a factory and fallback models configured
+                if available_fallbacks and self.provider_factory:
+                    fallback_success = False
+                    for fb_idx, fb_config in enumerate(available_fallbacks):
+                        # Inherit from default config if attributes are not set
+                        fb_provider_name = fb_config.provider
+                        if fb_provider_name == "auto" and self.default_config:
+                            fb_provider_name = self.default_config.provider
+                            
+                        fb_max_tokens = fb_config.max_tokens
+                        if fb_max_tokens is None and self.default_config:
+                            fb_max_tokens = self.default_config.max_tokens
+                            
+                        logger.info("Attempting fallback to model: {} (provider: {})", fb_config.model, fb_provider_name)
+                        try:
+                            # Notify user about fallback if progress callback is available
+                            if on_progress:
+                                await on_progress(f"Falling back to alternative model: {fb_config.model}...")
+                                
+                            fallback_provider = self.provider_factory(
+                                model_override=fb_config.model,
+                                provider_override=fb_provider_name,
+                                max_tokens_override=fb_max_tokens,
+                            )
+                            
+                            response = await fallback_provider.chat_with_retry(
+                                messages=messages,
+                                tools=tool_defs,
+                                model=fb_config.model,
+                            )
+                            
+                            if response.finish_reason != "error":
+                                logger.info("Fallback to {} successful.", fb_config.model)
+                                fallback_success = True
+                                
+                                # Update current provider and model to stick with the fallback for the rest of THIS loop
+                                current_provider = fallback_provider
+                                current_model = fb_config.model
+                                # Remove used fallbacks so we don't retry them again in this loop
+                                available_fallbacks = available_fallbacks[fb_idx + 1:]
+                                break
+                        except Exception as fb_err:
+                            logger.error("Fallback to {} failed: {}", fb_config.model, fb_err)
+                            
+                    if fallback_success:
+                        # Continue processing the successful fallback response
+                        pass
+                    else:
+                        clean = self._strip_think(getattr(response, "content", None)) if response else None
+                        final_content = clean or "Sorry, I encountered an error calling the AI model and all fallback models failed."
+                        break
+                else:
+                    clean = self._strip_think(getattr(response, "content", None)) if response else None
+                    final_content = clean or "Sorry, I encountered an error calling the AI model."
+                    break
 
             if response.has_tool_calls:
                 if on_progress:

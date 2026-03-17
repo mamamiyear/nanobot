@@ -298,15 +298,24 @@ def _onboard_plugins(config_path: Path) -> None:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
-def _make_provider(config: Config):
+def _make_provider(config: Config, model_override: str | None = None, provider_override: str | None = None, max_tokens_override: int | None = None):
     """Create the appropriate LLM provider from config."""
     from nanobot.providers.base import GenerationSettings
     from nanobot.providers.openai_codex_provider import OpenAICodexProvider
     from nanobot.providers.azure_openai_provider import AzureOpenAIProvider
 
-    model = config.agents.defaults.model
+    model = model_override or config.agents.defaults.model
+    # Temporarily override config to force matching logic for fallbacks
+    original_provider = config.agents.defaults.provider
+    if provider_override:
+        config.agents.defaults.provider = provider_override
+    
     provider_name = config.get_provider_name(model)
     p = config.get_provider(model)
+    
+    # Restore original config
+    if provider_override:
+        config.agents.defaults.provider = original_provider
 
     # OpenAI Codex (OAuth)
     if provider_name == "openai_codex" or model.startswith("openai-codex/"):
@@ -336,7 +345,7 @@ def _make_provider(config: Config):
         from nanobot.providers.registry import find_by_name
         spec = find_by_name(provider_name)
         if not model.startswith("bedrock/") and not (p and p.api_key) and not (spec and (spec.is_oauth or spec.is_local)):
-            console.print("[red]Error: No API key configured.[/red]")
+            console.print(f"[red]Error: No API key configured for provider {provider_name}.[/red]")
             console.print("Set one in ~/.nanobot/config.json under providers section")
             raise typer.Exit(1)
         provider = LiteLLMProvider(
@@ -350,7 +359,7 @@ def _make_provider(config: Config):
     defaults = config.agents.defaults
     provider.generation = GenerationSettings(
         temperature=defaults.temperature,
-        max_tokens=defaults.max_tokens,
+        max_tokens=max_tokens_override or defaults.max_tokens,
         reasoning_effort=defaults.reasoning_effort,
     )
     return provider
@@ -441,6 +450,9 @@ def gateway(
         session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        models=config.agents.defaults.models,
+        provider_factory=lambda **kwargs: _make_provider(config, **kwargs),
+        default_config=config.agents.defaults,
     )
 
     # Set cron callback (needs agent)
@@ -632,6 +644,9 @@ def agent(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        models=config.agents.defaults.models,
+        provider_factory=lambda **kwargs: _make_provider(config, **kwargs),
+        default_config=config.agents.defaults,
     )
 
     # Show spinner when logs are off (no output to miss); skip when logs are on
