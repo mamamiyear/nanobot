@@ -20,12 +20,11 @@ if sys.platform == "win32":
             pass
 
 import typer
-from prompt_toolkit import print_formatted_text
-from prompt_toolkit import PromptSession
+from prompt_toolkit import PromptSession, print_formatted_text
+from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.formatted_text import ANSI, HTML
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.patch_stdout import patch_stdout
-from prompt_toolkit.application import run_in_terminal
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.table import Table
@@ -298,24 +297,23 @@ def _onboard_plugins(config_path: Path) -> None:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
-def _make_provider(config: Config, model_override: str | None = None, provider_override: str | None = None, max_tokens_override: int | None = None):
+def _make_provider(
+    config: Config,
+    model_override: str | None = None,
+    provider_override: str | None = None,
+    max_tokens_override: int | None = None,
+):
     """Create the appropriate LLM provider from config."""
+    from nanobot.providers.azure_openai_provider import AzureOpenAIProvider
     from nanobot.providers.base import GenerationSettings
     from nanobot.providers.openai_codex_provider import OpenAICodexProvider
-    from nanobot.providers.azure_openai_provider import AzureOpenAIProvider
 
     model = model_override or config.agents.defaults.model
-    # Temporarily override config to force matching logic for fallbacks
-    original_provider = config.agents.defaults.provider
-    if provider_override:
-        config.agents.defaults.provider = provider_override
-    
-    provider_name = config.get_provider_name(model)
-    p = config.get_provider(model)
-    
-    # Restore original config
-    if provider_override:
-        config.agents.defaults.provider = original_provider
+
+    forced_provider = provider_override if (provider_override and provider_override != "auto") else None
+    provider_name = config.get_provider_name(model, forced_provider=forced_provider)
+    p = config.get_provider(model, forced_provider=forced_provider)
+    api_base = config.get_api_base(model, forced_provider=forced_provider)
 
     # OpenAI Codex (OAuth)
     if provider_name == "openai_codex" or model.startswith("openai-codex/"):
@@ -325,7 +323,7 @@ def _make_provider(config: Config, model_override: str | None = None, provider_o
         from nanobot.providers.custom_provider import CustomProvider
         provider = CustomProvider(
             api_key=p.api_key if p else "no-key",
-            api_base=config.get_api_base(model) or "http://localhost:8000/v1",
+            api_base=api_base or "http://localhost:8000/v1",
             default_model=model,
         )
     # Azure OpenAI: direct Azure OpenAI endpoint with deployment name
@@ -343,14 +341,15 @@ def _make_provider(config: Config, model_override: str | None = None, provider_o
     else:
         from nanobot.providers.litellm_provider import LiteLLMProvider
         from nanobot.providers.registry import find_by_name
-        spec = find_by_name(provider_name)
+        spec = find_by_name(provider_name) if provider_name else None
+        provider_label = provider_name or "unknown"
         if not model.startswith("bedrock/") and not (p and p.api_key) and not (spec and (spec.is_oauth or spec.is_local)):
-            console.print(f"[red]Error: No API key configured for provider {provider_name}.[/red]")
+            console.print(f"[red]Error: No API key configured for provider {provider_label}.[/red]")
             console.print("Set one in ~/.nanobot/config.json under providers section")
             raise typer.Exit(1)
         provider = LiteLLMProvider(
             api_key=p.api_key if p else None,
-            api_base=config.get_api_base(model),
+            api_base=api_base,
             default_model=model,
             extra_headers=p.extra_headers if p else None,
             provider_name=provider_name,
