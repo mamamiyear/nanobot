@@ -1,11 +1,11 @@
 """CLI commands for nanobot."""
 
 import asyncio
-from contextlib import contextmanager, nullcontext
 import os
 import select
 import signal
 import sys
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -21,12 +21,11 @@ if sys.platform == "win32":
             pass
 
 import typer
-from prompt_toolkit import print_formatted_text
-from prompt_toolkit import PromptSession
+from prompt_toolkit import PromptSession, print_formatted_text
+from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.formatted_text import ANSI, HTML
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.patch_stdout import patch_stdout
-from prompt_toolkit.application import run_in_terminal
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.table import Table
@@ -465,10 +464,13 @@ def gateway(
     from nanobot.agent.loop import AgentLoop
     from nanobot.bus.queue import MessageBus
     from nanobot.channels.manager import ChannelManager
-    from nanobot.config.paths import get_cron_dir
+    from nanobot.config.paths import get_cron_dir, get_monitor_dir
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronJob
     from nanobot.heartbeat.service import HeartbeatService
+    from nanobot.monitor.evaluator import evaluate_condition_with_llm
+    from nanobot.monitor.service import MonitorService
+    from nanobot.monitor.types import MonitorTask
     from nanobot.session.manager import SessionManager
 
     if verbose:
@@ -488,6 +490,7 @@ def gateway(
     # Create cron service first (callback set after agent creation)
     cron_store_path = get_cron_dir() / "jobs.json"
     cron = CronService(cron_store_path)
+    monitor = MonitorService(get_monitor_dir() / "tasks", bus=bus)
 
     # Create agent with cron service
     agent = AgentLoop(
@@ -501,6 +504,7 @@ def gateway(
         web_proxy=config.tools.web.proxy or None,
         exec_config=config.tools.exec,
         cron_service=cron,
+        monitor_service=monitor,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
@@ -552,6 +556,26 @@ def gateway(
                 ))
         return response
     cron.on_job = on_cron_job
+
+    async def on_monitor_execute(task: MonitorTask, phase: str, prompt: str) -> str | None:
+        return await agent.process_direct(
+            prompt,
+            session_key=f"monitor:{task.id}",
+            channel=task.owner_channel,
+            chat_id=task.owner_chat_id,
+        )
+
+    async def on_monitor_condition(condition: str, output: str, task: MonitorTask) -> bool:
+        return await evaluate_condition_with_llm(
+            condition=condition,
+            output=output,
+            task=task,
+            provider=provider,
+            model=agent.model,
+        )
+
+    monitor.on_execute = on_monitor_execute
+    monitor.condition_evaluator = on_monitor_condition
 
     # Create channel manager
     channels = ChannelManager(config, bus)
@@ -615,12 +639,16 @@ def gateway(
     cron_status = cron.status()
     if cron_status["jobs"] > 0:
         console.print(f"[green]✓[/green] Cron: {cron_status['jobs']} scheduled jobs")
+    monitor_status = monitor.status()
+    if monitor_status["tasks"] > 0:
+        console.print(f"[green]✓[/green] Monitor: {monitor_status['tasks']} running tasks")
 
     console.print(f"[green]✓[/green] Heartbeat: every {hb_cfg.interval_s}s")
 
     async def run():
         try:
             await cron.start()
+            await monitor.start()
             await heartbeat.start()
             await asyncio.gather(
                 agent.run(),
@@ -636,6 +664,7 @@ def gateway(
             await agent.close_mcp()
             heartbeat.stop()
             cron.stop()
+            monitor.stop()
             agent.stop()
             await channels.stop_all()
 
@@ -663,8 +692,9 @@ def agent(
 
     from nanobot.agent.loop import AgentLoop
     from nanobot.bus.queue import MessageBus
-    from nanobot.config.paths import get_cron_dir
+    from nanobot.config.paths import get_cron_dir, get_monitor_dir
     from nanobot.cron.service import CronService
+    from nanobot.monitor.service import MonitorService
 
     config = _load_runtime_config(config, workspace)
     _print_deprecated_memory_window_notice(config)
@@ -676,6 +706,7 @@ def agent(
     # Create cron service for tool usage (no callback needed for CLI unless running)
     cron_store_path = get_cron_dir() / "jobs.json"
     cron = CronService(cron_store_path)
+    monitor = MonitorService(get_monitor_dir() / "tasks", bus=bus)
 
     if logs:
         logger.enable("nanobot")
@@ -693,6 +724,7 @@ def agent(
         web_proxy=config.tools.web.proxy or None,
         exec_config=config.tools.exec,
         cron_service=cron,
+        monitor_service=monitor,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,

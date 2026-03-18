@@ -29,6 +29,11 @@ def get_cron_dir() -> Path:
     return get_runtime_subdir("cron")
 
 
+def get_monitor_dir() -> Path:
+    """Return the monitor storage directory."""
+    return get_runtime_subdir("monitor")
+
+
 def get_logs_dir() -> Path:
     """Return the logs directory."""
     return get_runtime_subdir("logs")

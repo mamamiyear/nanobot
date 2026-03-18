@@ -9,6 +9,7 @@ from nanobot.config.paths import (
     get_legacy_sessions_dir,
     get_logs_dir,
     get_media_dir,
+    get_monitor_dir,
     get_runtime_subdir,
     get_workspace_path,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "get_runtime_subdir",
     "get_media_dir",
     "get_cron_dir",
+    "get_monitor_dir",
     "get_logs_dir",
     "get_workspace_path",
     "get_cli_history_path",
