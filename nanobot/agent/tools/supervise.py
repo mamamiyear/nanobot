@@ -1,10 +1,10 @@
 from typing import TYPE_CHECKING, Any
 
-from nanobot.agent.supervisior import SupervisorReportConfig
+from nanobot.agent.supervisor import SupervisorReportConfig
 from nanobot.agent.tools.base import Tool
 
 if TYPE_CHECKING:
-    from nanobot.agent.supervisior import SupervisorManager
+    from nanobot.agent.supervisor import SupervisorManager
 
 
 class SuperviseTool(Tool):

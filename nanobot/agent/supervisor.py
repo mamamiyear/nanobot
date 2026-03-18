@@ -80,12 +80,12 @@ class _BusSubagentReporter(SubagentReporter):
     def on_tool_call(self, tool_name: str, args: dict[str, Any]) -> None:
         if not self._cfg.report_tool_calls:
             return
-        self._emit("tool_call", {"tool": tool_name, "args": args})
+        self._emit("tool_call", {"tool": tool_name, "args": args}, bypass_throttle=True)
 
     def on_tool_result(self, tool_name: str, result: str) -> None:
         if not self._cfg.report_tool_results:
             return
-        self._emit("tool_result", {"tool": tool_name, "result": result})
+        self._emit("tool_result", {"tool": tool_name, "result": result}, bypass_throttle=True)
 
     def on_final(self, result: str, *, status: str) -> None:
         self._emit("final", {"status": status, "result": result}, bypass_throttle=True, persist=True)
