@@ -2,9 +2,10 @@
 
 import asyncio
 import json
+import re
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -17,6 +18,9 @@ from nanobot.bus.queue import MessageBus
 from nanobot.config.schema import ExecToolConfig
 from nanobot.providers.base import LLMProvider
 from nanobot.utils.helpers import build_assistant_message
+
+if TYPE_CHECKING:
+    from nanobot.config.schema import WebSearchConfig
 
 
 class SubagentManager:
@@ -53,6 +57,7 @@ class SubagentManager:
         origin_channel: str = "cli",
         origin_chat_id: str = "direct",
         session_key: str | None = None,
+        reporter: "SubagentReporter | None" = None,
     ) -> str:
         """Spawn a subagent to execute a task in the background."""
         task_id = str(uuid.uuid4())[:8]
@@ -60,7 +65,7 @@ class SubagentManager:
         origin = {"channel": origin_channel, "chat_id": origin_chat_id}
 
         bg_task = asyncio.create_task(
-            self._run_subagent(task_id, task, display_label, origin)
+            self._run_subagent(task_id, task, display_label, origin, reporter=reporter)
         )
         self._running_tasks[task_id] = bg_task
         if session_key:
@@ -84,6 +89,7 @@ class SubagentManager:
         task: str,
         label: str,
         origin: dict[str, str],
+        reporter: "SubagentReporter | None" = None,
     ) -> None:
         """Execute the subagent task and announce the result."""
         logger.info("Subagent [{}] starting task: {}", task_id, label)
@@ -104,7 +110,7 @@ class SubagentManager:
             ))
             tools.register(WebSearchTool(config=self.web_search_config, proxy=self.web_proxy))
             tools.register(WebFetchTool(proxy=self.web_proxy))
-            
+
             system_prompt = self._build_subagent_prompt()
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},
@@ -126,6 +132,10 @@ class SubagentManager:
                 )
 
                 if response.has_tool_calls:
+                    if reporter:
+                        thought = self._strip_think(response.content)
+                        reporter.on_thought(thought)
+
                     tool_call_dicts = [
                         tc.to_openai_tool_call()
                         for tc in response.tool_calls
@@ -141,7 +151,11 @@ class SubagentManager:
                     for tool_call in response.tool_calls:
                         args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                         logger.debug("Subagent [{}] executing: {} with arguments: {}", task_id, tool_call.name, args_str)
+                        if reporter:
+                            reporter.on_tool_call(tool_call.name, tool_call.arguments)
                         result = await tools.execute(tool_call.name, tool_call.arguments)
+                        if reporter:
+                            reporter.on_tool_result(tool_call.name, result)
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tool_call.id,
@@ -156,12 +170,18 @@ class SubagentManager:
                 final_result = "Task completed but no final response was generated."
 
             logger.info("Subagent [{}] completed successfully", task_id)
-            await self._announce_result(task_id, label, task, final_result, origin, "ok")
+            if reporter:
+                reporter.on_final(final_result, status="ok")
+            if reporter is None:
+                await self._announce_result(task_id, label, task, final_result, origin, "ok")
 
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             logger.error("Subagent [{}] failed: {}", task_id, e)
-            await self._announce_result(task_id, label, task, error_msg, origin, "error")
+            if reporter:
+                reporter.on_final(error_msg, status="error")
+            if reporter is None:
+                await self._announce_result(task_id, label, task, error_msg, origin, "error")
 
     async def _announce_result(
         self,
@@ -194,7 +214,7 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
 
         await self.bus.publish_inbound(msg)
         logger.debug("Subagent [{}] announced result to {}:{}", task_id, origin['channel'], origin['chat_id'])
-    
+
     def _build_subagent_prompt(self) -> str:
         """Build a focused system prompt for the subagent."""
         from nanobot.agent.context import ContextBuilder
@@ -217,6 +237,12 @@ Stay focused on the assigned task. Your final response will be reported back to 
 
         return "\n\n".join(parts)
 
+    @staticmethod
+    def _strip_think(text: str | None) -> str | None:
+        if not text:
+            return None
+        return re.sub(r"<think>[\s\S]*?</think>", "", text).strip() or None
+
     async def cancel_by_session(self, session_key: str) -> int:
         """Cancel all subagents for the given session. Returns count cancelled."""
         tasks = [self._running_tasks[tid] for tid in self._session_tasks.get(session_key, [])
@@ -230,3 +256,17 @@ Stay focused on the assigned task. Your final response will be reported back to 
     def get_running_count(self) -> int:
         """Return the number of currently running subagents."""
         return len(self._running_tasks)
+
+
+class SubagentReporter:
+    def on_thought(self, thought: str | None) -> None:
+        pass
+
+    def on_tool_call(self, tool_name: str, args: dict[str, Any]) -> None:
+        pass
+
+    def on_tool_result(self, tool_name: str, result: str) -> None:
+        pass
+
+    def on_final(self, result: str, *, status: str) -> None:
+        pass
