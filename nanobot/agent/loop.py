@@ -362,6 +362,11 @@ class AgentLoop:
             self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
             is_supervisor = bool((msg.metadata or {}).get("_supervisor"))
             history = session.get_history(max_messages=20 if is_supervisor else 0)
+            if is_supervisor:
+                supervision_id = (msg.metadata or {}).get("supervision_id")
+                anchor = self._find_supervision_anchor(session, supervision_id) if supervision_id else None
+                if anchor and not any(self._is_same_user_content(m, anchor) for m in history):
+                    history = [anchor, *history]
             messages = self.context.build_messages(
                 history=history,
                 current_message=msg.content, channel=channel, chat_id=chat_id,
@@ -380,7 +385,8 @@ class AgentLoop:
             final_content, _, all_msgs = await self._run_agent_loop(messages, on_progress=_bus_progress)
 
             persist = bool((msg.metadata or {}).get("persist"))
-            if persist or not is_supervisor:
+            tool_activity = self._has_tool_activity(all_msgs, skip=1 + len(history))
+            if persist or not is_supervisor or tool_activity:
                 self._save_turn(session, all_msgs, 1 + len(history))
                 self.sessions.save(session)
                 await self.memory_consolidator.maybe_consolidate_by_tokens(session)
@@ -473,6 +479,31 @@ class AgentLoop:
             channel=msg.channel, chat_id=msg.chat_id, content=final_content,
             metadata=msg.metadata or {},
         )
+
+    @staticmethod
+    def _has_tool_activity(messages: list[dict], *, skip: int) -> bool:
+        for m in messages[skip:]:
+            if m.get("role") == "tool":
+                return True
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                return True
+        return False
+
+    @staticmethod
+    def _is_same_user_content(a: dict, b: dict) -> bool:
+        return a.get("role") == "user" and b.get("role") == "user" and a.get("content") == b.get("content")
+
+    @staticmethod
+    def _find_supervision_anchor(session: Session, supervision_id: str) -> dict | None:
+        needle_id = f"Supervision ID: {supervision_id}"
+        needle_kind = "Kind: start"
+        for m in reversed(session.messages):
+            if m.get("role") != "user":
+                continue
+            content = m.get("content")
+            if isinstance(content, str) and needle_id in content and needle_kind in content:
+                return {"role": "user", "content": content}
+        return None
 
     def _save_turn(self, session: Session, messages: list[dict], skip: int) -> None:
         """Save new-turn messages into session, truncating large tool results."""

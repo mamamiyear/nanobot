@@ -1,5 +1,6 @@
 import asyncio
 import json
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
@@ -33,12 +34,14 @@ class SupervisorManager:
         config: SupervisorReportConfig | None = None,
     ) -> str:
         cfg = config or SupervisorReportConfig()
+        supervision_id = str(uuid.uuid4())[:8]
         reporter = _BusSubagentReporter(
             bus=self.bus,
             origin_channel=origin_channel,
             origin_chat_id=origin_chat_id,
             session_key=session_key,
             label=label or task[:30] + ("..." if len(task) > 30 else ""),
+            supervision_id=supervision_id,
             config=cfg,
         )
         return await self.subagents.spawn(
@@ -60,6 +63,7 @@ class _BusSubagentReporter(SubagentReporter):
         origin_chat_id: str,
         session_key: str | None,
         label: str,
+        supervision_id: str,
         config: SupervisorReportConfig,
     ):
         self._bus = bus
@@ -67,8 +71,30 @@ class _BusSubagentReporter(SubagentReporter):
         self._origin_chat_id = origin_chat_id
         self._session_key = session_key
         self._label = label
+        self._supervision_id = supervision_id
         self._cfg = config
         self._last_emit_at: float | None = None
+        self._seq = 0
+        self._queue: asyncio.Queue[tuple[InboundMessage, bool]] = asyncio.Queue(maxsize=200)
+        self._pump_task = asyncio.create_task(self._pump())
+
+    def on_started(
+        self,
+        *,
+        task_id: str,
+        task: str,
+        label: str,
+        origin_channel: str,
+        origin_chat_id: str,
+        session_key: str | None,
+    ) -> None:
+        self._emit(
+            "start",
+            {"task_id": task_id, "task": task, "label": label},
+            bypass_throttle=True,
+            persist=True,
+            critical=True,
+        )
 
     def on_thought(self, thought: str | None) -> None:
         if not self._cfg.report_thoughts:
@@ -88,13 +114,28 @@ class _BusSubagentReporter(SubagentReporter):
         self._emit("tool_result", {"tool": tool_name, "result": result}, bypass_throttle=True)
 
     def on_final(self, result: str, *, status: str) -> None:
-        self._emit("final", {"status": status, "result": result}, bypass_throttle=True, persist=True)
+        self._emit(
+            "final",
+            {"status": status, "result": result},
+            bypass_throttle=True,
+            persist=True,
+            critical=True,
+        )
 
-    def _emit(self, kind: str, payload: dict[str, Any], *, bypass_throttle: bool = False, persist: bool = False) -> None:
+    def _emit(
+        self,
+        kind: str,
+        payload: dict[str, Any],
+        *,
+        bypass_throttle: bool = False,
+        persist: bool = False,
+        critical: bool = False,
+    ) -> None:
         if not bypass_throttle and not self._should_emit():
             return
 
-        content = self._build_content(kind, payload)
+        self._seq += 1
+        content = self._build_content(kind, payload, seq=self._seq)
         msg = InboundMessage(
             channel="system",
             sender_id="supervisor",
@@ -106,9 +147,33 @@ class _BusSubagentReporter(SubagentReporter):
                 "label": self._label,
                 "persist": persist,
                 "session_key": self._session_key,
+                "seq": self._seq,
+                "supervision_id": self._supervision_id,
             },
         )
-        asyncio.create_task(self._bus.publish_inbound(msg))
+        self._enqueue(msg, critical=critical)
+
+    def _enqueue(self, msg: InboundMessage, *, critical: bool) -> None:
+        if critical:
+            while self._queue.full():
+                try:
+                    self._queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+        try:
+            self._queue.put_nowait((msg, critical))
+        except asyncio.QueueFull:
+            return
+
+    async def _pump(self) -> None:
+        while True:
+            msg, critical = await self._queue.get()
+            try:
+                await self._bus.publish_inbound(msg)
+            finally:
+                self._queue.task_done()
+                if critical and (msg.metadata or {}).get("kind") == "final":
+                    break
 
     def _should_emit(self) -> bool:
         if self._cfg.min_interval_seconds <= 0:
@@ -120,13 +185,15 @@ class _BusSubagentReporter(SubagentReporter):
             return True
         return False
 
-    def _build_content(self, kind: str, payload: dict[str, Any]) -> str:
+    def _build_content(self, kind: str, payload: dict[str, Any], *, seq: int) -> str:
         raw = json.dumps(payload, ensure_ascii=False)
         if len(raw) > self._cfg.max_payload_chars:
             raw = raw[: self._cfg.max_payload_chars] + "\n... (truncated)"
         return (
             "You are the main agent. You received a supervisor update for a background task.\n\n"
+            f"Supervision ID: {self._supervision_id}\n"
             f"Label: {self._label}\n"
+            f"Seq: {seq}\n"
             f"Kind: {kind}\n"
             f"Payload (json):\n{raw}\n\n"
             "Use this update together with the ongoing conversation and the original user goal.\n"

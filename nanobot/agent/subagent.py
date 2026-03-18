@@ -71,6 +71,16 @@ class SubagentManager:
         if session_key:
             self._session_tasks.setdefault(session_key, set()).add(task_id)
 
+        if reporter:
+            reporter.on_started(
+                task_id=task_id,
+                task=task,
+                label=display_label,
+                origin_channel=origin_channel,
+                origin_chat_id=origin_chat_id,
+                session_key=session_key,
+            )
+
         def _cleanup(_: asyncio.Task) -> None:
             self._running_tasks.pop(task_id, None)
             if session_key and (ids := self._session_tasks.get(session_key)):
@@ -259,6 +269,18 @@ Stay focused on the assigned task. Your final response will be reported back to 
 
 
 class SubagentReporter:
+    def on_started(
+        self,
+        *,
+        task_id: str,
+        task: str,
+        label: str,
+        origin_channel: str,
+        origin_chat_id: str,
+        session_key: str | None,
+    ) -> None:
+        pass
+
     def on_thought(self, thought: str | None) -> None:
         pass
 
