@@ -55,10 +55,20 @@ class ProviderConfig(Base):
     api_base: str | None = None
     extra_headers: dict[str, str] | None = None  # Custom headers (e.g. APP-Code for AiHubMix)
 
+class AutoFallbackModelConfig(Base):
+    model: str
+    provider: str
+
+
+class AutoFallbackConfig(Base):
+    default: AutoFallbackModelConfig
+    alternatives: list[AutoFallbackModelConfig] = Field(default_factory=list)
+
 
 class ProvidersConfig(Base):
     """Configuration for LLM providers."""
 
+    autofallback: AutoFallbackConfig | None = Field(default=None)
     custom: ProviderConfig = Field(default_factory=ProviderConfig)  # Any OpenAI-compatible endpoint
     azure_openai: ProviderConfig = Field(default_factory=ProviderConfig)  # Azure OpenAI (model = deployment name)
     anthropic: ProviderConfig = Field(default_factory=ProviderConfig)
