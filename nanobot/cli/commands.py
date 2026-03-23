@@ -1,12 +1,11 @@
 """CLI commands for nanobot."""
 
 import asyncio
-from contextlib import contextmanager, nullcontext
-
 import os
 import select
 import signal
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -381,7 +380,142 @@ def _make_provider(config: Config):
     from nanobot.providers.base import GenerationSettings
     from nanobot.providers.openai_codex_provider import OpenAICodexProvider
 
-    model = config.agents.defaults.model
+    defaults = config.agents.defaults
+
+    def _normalize_provider_name(name: str | None) -> str:
+        return (name or "").strip().lower().replace("-", "_")
+
+    def _is_provider_available(provider_name: str) -> bool:
+        from nanobot.providers.registry import find_by_name
+
+        provider_key = _normalize_provider_name(provider_name)
+        if not provider_key or provider_key == "autofallback":
+            return False
+
+        spec = find_by_name(provider_key)
+        if spec is None:
+            return False
+
+        p = getattr(config.providers, provider_key, None)
+        if spec.is_oauth:
+            return True
+        if spec.is_local:
+            return bool(getattr(p, "api_base", None)) or bool(spec.default_api_base)
+        if provider_key == "azure_openai":
+            return bool(getattr(p, "api_key", None)) and bool(getattr(p, "api_base", None))
+        return bool(getattr(p, "api_key", None))
+
+    def _make_concrete_provider(*, model: str, provider: str):
+        from nanobot.providers.registry import find_by_name
+
+        provider_key = _normalize_provider_name(provider)
+        if not provider_key or provider_key == "autofallback":
+            raise ValueError("Invalid provider name for autofallback target")
+
+        if provider_key == "openai_codex" or model.startswith("openai-codex/"):
+            p = OpenAICodexProvider(default_model=model)
+            p.generation = GenerationSettings(
+                temperature=defaults.temperature,
+                max_tokens=defaults.max_tokens,
+                reasoning_effort=defaults.reasoning_effort,
+            )
+            return p
+
+        if provider_key == "custom":
+            from nanobot.providers.custom_provider import CustomProvider
+
+            pcfg = getattr(config.providers, provider_key, None)
+            p = CustomProvider(
+                api_key=getattr(pcfg, "api_key", "") or "no-key",
+                api_base=getattr(pcfg, "api_base", None) or "http://localhost:8000/v1",
+                default_model=model,
+                extra_headers=getattr(pcfg, "extra_headers", None) or None,
+            )
+            p.generation = GenerationSettings(
+                temperature=defaults.temperature,
+                max_tokens=defaults.max_tokens,
+                reasoning_effort=defaults.reasoning_effort,
+            )
+            return p
+
+        if provider_key == "azure_openai":
+            pcfg = getattr(config.providers, provider_key, None)
+            if not pcfg or not pcfg.api_key or not pcfg.api_base:
+                raise ValueError("Azure OpenAI requires api_key and api_base")
+            p = AzureOpenAIProvider(
+                api_key=pcfg.api_key,
+                api_base=pcfg.api_base,
+                default_model=model,
+            )
+            p.generation = GenerationSettings(
+                temperature=defaults.temperature,
+                max_tokens=defaults.max_tokens,
+                reasoning_effort=defaults.reasoning_effort,
+            )
+            return p
+
+        from nanobot.providers.litellm_provider import LiteLLMProvider
+
+        spec = find_by_name(provider_key)
+        pcfg = getattr(config.providers, provider_key, None)
+        api_base = getattr(pcfg, "api_base", None) or None
+        if api_base is None and spec and (spec.is_gateway or spec.is_local) and spec.default_api_base:
+            api_base = spec.default_api_base
+
+        if (
+            not model.startswith("bedrock/")
+            and not (pcfg and pcfg.api_key)
+            and not (spec and (spec.is_oauth or spec.is_local))
+        ):
+            raise ValueError(f"No API key configured for provider {provider_key}")
+
+        p = LiteLLMProvider(
+            api_key=pcfg.api_key if pcfg else None,
+            api_base=api_base,
+            default_model=model,
+            extra_headers=pcfg.extra_headers if pcfg else None,
+            provider_name=provider_key,
+        )
+        p.generation = GenerationSettings(
+            temperature=defaults.temperature,
+            max_tokens=defaults.max_tokens,
+            reasoning_effort=defaults.reasoning_effort,
+        )
+        return p
+
+    if defaults.provider == "autofallback":
+        from nanobot.providers.fallback_provider import AutoFallbackModelSpec, AutoFallbackProvider
+
+        cfg = config.providers.autofallback
+        if cfg is None:
+            console.print("[red]Error: providers.autofallback is not configured.[/red]")
+            raise typer.Exit(1)
+
+        if defaults.model and defaults.model != cfg.default.model:
+            console.print(
+                "[dim]Hint: `agents.defaults.model` is ignored when `provider=autofallback`. "
+                "Using `providers.autofallback.default.model` as the default model.[/dim]"
+            )
+
+        default_spec = AutoFallbackModelSpec(model=cfg.default.model, provider=cfg.default.provider)
+        alt_specs = [
+            AutoFallbackModelSpec(model=item.model, provider=item.provider)
+            for item in (cfg.alternatives or [])
+        ]
+        provider = AutoFallbackProvider(
+            default=default_spec,
+            alternatives=alt_specs,
+            provider_factory=_make_concrete_provider,
+            is_provider_available=_is_provider_available,
+        )
+        provider.generation = GenerationSettings(
+            temperature=defaults.temperature,
+            max_tokens=defaults.max_tokens,
+            reasoning_effort=defaults.reasoning_effort,
+        )
+        return provider
+
+    model = defaults.model
     provider_name = config.get_provider_name(model)
     p = config.get_provider(model)
 
@@ -433,7 +567,6 @@ def _make_provider(config: Config):
             provider_name=provider_name,
         )
 
-    defaults = config.agents.defaults
     provider.generation = GenerationSettings(
         temperature=defaults.temperature,
         max_tokens=defaults.max_tokens,
@@ -465,6 +598,7 @@ def _load_runtime_config(config: str | None = None, workspace: str | None = None
 def _warn_deprecated_config_keys(config_path: Path | None) -> None:
     """Hint users to remove obsolete keys from their config file."""
     import json
+
     from nanobot.config.loader import get_config_path
 
     path = config_path or get_config_path()
