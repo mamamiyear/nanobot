@@ -48,6 +48,25 @@ def test_from_config_default_path():
         mock_load.assert_called_once_with(None)
 
 
+def test_from_config_uses_provider_default_model(tmp_path):
+    from nanobot.config.schema import Config
+
+    provider = MagicMock()
+    provider.get_default_model.return_value = "resolved-default-model"
+    provider.generation.max_tokens = 4096
+
+    with patch("nanobot.config.loader.load_config", return_value=Config()), \
+         patch("nanobot.config.loader.resolve_config_env_vars", side_effect=lambda c: c), \
+         patch("nanobot.nanobot._make_provider", return_value=provider), \
+         patch("nanobot.nanobot.AgentLoop") as mock_loop_cls:
+        mock_loop = MagicMock()
+        mock_loop_cls.return_value = mock_loop
+
+        Nanobot.from_config(workspace=tmp_path)
+
+    assert mock_loop_cls.call_args.kwargs["model"] == "resolved-default-model"
+
+
 @pytest.mark.asyncio
 async def test_run_returns_result(tmp_path):
     config_path = _write_config(tmp_path)

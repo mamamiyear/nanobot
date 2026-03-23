@@ -65,12 +65,13 @@ class Nanobot:
         provider = _make_provider(config)
         bus = MessageBus()
         defaults = config.agents.defaults
+        model_name = provider.get_default_model()
 
         loop = AgentLoop(
             bus=bus,
             provider=provider,
             workspace=config.workspace_path,
-            model=defaults.model,
+            model=model_name,
             max_iterations=defaults.max_tool_iterations,
             context_window_tokens=defaults.context_window_tokens,
             context_block_limit=defaults.context_block_limit,

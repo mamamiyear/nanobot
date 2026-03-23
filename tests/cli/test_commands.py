@@ -12,7 +12,7 @@ from nanobot.bus.events import OutboundMessage
 from nanobot.cli.commands import _make_provider, app
 from nanobot.config.schema import Config
 from nanobot.cron.types import CronJob, CronPayload
-from nanobot.providers.factory import ProviderSnapshot
+from nanobot.providers.factory import ProviderSnapshot, build_provider_snapshot
 from nanobot.providers.openai_codex_provider import _strip_model_prefix
 from nanobot.providers.registry import find_by_name
 
@@ -389,6 +389,40 @@ def test_make_provider_uses_github_copilot_backend():
         provider = _make_provider(config)
 
     assert provider.__class__.__name__ == "GitHubCopilotProvider"
+
+
+def test_build_provider_snapshot_uses_autofallback_default_model():
+    config = Config.model_validate(
+        {
+            "agents": {
+                "defaults": {
+                    "provider": "autofallback",
+                    "model": "openai/gpt-4.1",
+                }
+            },
+            "providers": {
+                "autofallback": {
+                    "default": {
+                        "provider": "openrouter",
+                        "model": "openai/gpt-4.1-mini",
+                    },
+                    "alternatives": [
+                        {
+                            "provider": "openai",
+                            "model": "openai/gpt-4.1",
+                        }
+                    ],
+                },
+                "openrouter": {"apiKey": "sk-or-test"},
+                "openai": {"apiKey": "test-openai-key"},
+            },
+        }
+    )
+
+    snapshot = build_provider_snapshot(config)
+
+    assert snapshot.provider.__class__.__name__ == "AutoFallbackProvider"
+    assert snapshot.model == "openai/gpt-4.1-mini"
 
 
 def test_github_copilot_provider_strips_prefixed_model_name():

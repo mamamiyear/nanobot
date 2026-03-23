@@ -414,11 +414,25 @@ def _make_provider(config: Config):
     """
     from nanobot.providers.factory import make_provider
 
+    _warn_autofallback_model_override(config)
     try:
         return make_provider(config)
     except ValueError as exc:
         console.print(f"[red]Error: {exc}[/red]")
         raise typer.Exit(1) from exc
+
+
+def _warn_autofallback_model_override(config: Config) -> None:
+    """Explain which model wins when provider-level fallback routing is enabled."""
+    defaults = config.agents.defaults
+    cfg = config.providers.autofallback
+    if defaults.provider != "autofallback" or cfg is None:
+        return
+    if defaults.model and defaults.model != cfg.default.model:
+        console.print(
+            "[dim]Hint: `agents.defaults.model` is ignored when `provider=autofallback`. "
+            "Using `providers.autofallback.default.model` as the default model.[/dim]"
+        )
 
 
 def _load_runtime_config(config: str | None = None, workspace: str | None = None) -> Config:
@@ -516,12 +530,13 @@ def serve(
     sync_workspace_templates(runtime_config.workspace_path)
     bus = MessageBus()
     provider = _make_provider(runtime_config)
+    model_name = provider.get_default_model()
     session_manager = SessionManager(runtime_config.workspace_path)
     agent_loop = AgentLoop(
         bus=bus,
         provider=provider,
         workspace=runtime_config.workspace_path,
-        model=runtime_config.agents.defaults.model,
+        model=model_name,
         max_iterations=runtime_config.agents.defaults.max_tool_iterations,
         context_window_tokens=runtime_config.agents.defaults.context_window_tokens,
         context_block_limit=runtime_config.agents.defaults.context_block_limit,
@@ -542,7 +557,6 @@ def serve(
         tools_config=runtime_config.tools,
     )
 
-    model_name = runtime_config.agents.defaults.model
     console.print(f"{__logo__} Starting OpenAI-compatible API server")
     console.print(f"  [cyan]Endpoint[/cyan] : http://{host}:{port}/v1/chat/completions")
     console.print(f"  [cyan]Model[/cyan]    : {model_name}")
@@ -613,6 +627,7 @@ def _run_gateway(
     console.print(f"{__logo__} Starting nanobot gateway version {__version__} on port {port}...")
     sync_workspace_templates(config.workspace_path)
     bus = MessageBus()
+    _warn_autofallback_model_override(config)
     try:
         provider_snapshot = build_provider_snapshot(config)
     except ValueError as exc:
@@ -1010,6 +1025,7 @@ def agent(
 
     bus = MessageBus()
     provider = _make_provider(config)
+    model_name = provider.get_default_model()
 
     # Preserve existing single-workspace installs, but keep custom workspaces clean.
     if is_default_workspace(config.workspace_path):
@@ -1028,7 +1044,7 @@ def agent(
         bus=bus,
         provider=provider,
         workspace=config.workspace_path,
-        model=config.agents.defaults.model,
+        model=model_name,
         max_iterations=config.agents.defaults.max_tool_iterations,
         context_window_tokens=config.agents.defaults.context_window_tokens,
         web_config=config.tools.web,
