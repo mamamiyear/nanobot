@@ -233,7 +233,17 @@ class OpenAICompatProvider(LLMProvider):
             "max_completion_tokens": max(1, max_tokens),
             "temperature": temperature,
         }
-
+        
+        CONFLICTED_DOUBLE_MAX_TOKENS_SETTING_MODELS = [
+            "volcengine",
+            "volcengineCodingPlan",
+            "byteplus",
+            "byteplusCodingPlan",
+        ]
+        
+        if self._spec.name in CONFLICTED_DOUBLE_MAX_TOKENS_SETTING_MODELS:
+            del kwargs["max_completion_tokens"]
+        
         if spec:
             model_lower = model_name.lower()
             for pattern, overrides in spec.model_overrides:
