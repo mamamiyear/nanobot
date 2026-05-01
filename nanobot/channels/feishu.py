@@ -1529,7 +1529,7 @@ class FeishuChannel(BaseChannel):
             reply_message_id, reply_in_thread, reply_every_message = self._resolve_reply_behavior(
                 msg.metadata
             )
-            first_send = True  # tracks whether the reply has already been used
+            first_send = False  # tracks whether the reply has already been used
 
             def _do_send(m_type: str, content: str) -> None:
                 """Send via reply or create depending on the configured mode."""
