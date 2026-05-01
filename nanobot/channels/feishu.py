@@ -1351,14 +1351,16 @@ class FeishuChannel(BaseChannel):
         meta = metadata or {}
         reply_message_id: str | None = None
         message_id = meta.get("message_id")
-        if self.config.reply_to_message and not meta.get("_progress", False):
-            reply_message_id = message_id
-        elif meta.get("thread_id"):
-            # Keep replying when the inbound group message is already inside a topic.
-            reply_message_id = message_id
-
         chat_type = meta.get("chat_type", "group")
         is_group_chat = chat_type == "group"
+        is_progress = bool(meta.get("_progress", False))
+        if not is_progress:
+            if is_group_chat and self.config.reply_in_thread_for_group:
+                reply_message_id = message_id
+            elif self.config.reply_to_message:
+                reply_message_id = message_id
+            elif meta.get("thread_id"):
+                reply_message_id = message_id
         reply_in_thread = is_group_chat and (
             self.config.reply_in_thread_for_group or bool(meta.get("thread_id"))
         )
@@ -1504,6 +1506,7 @@ class FeishuChannel(BaseChannel):
                     await self.send_delta(
                         msg.chat_id,
                         "\n\n" + self._format_tool_hint_delta(hint) + "\n\n",
+                        metadata=msg.metadata,
                     )
                     return
                 # No active streaming card — send as a regular
@@ -1514,19 +1517,9 @@ class FeishuChannel(BaseChannel):
                     ]},
                     ensure_ascii=False,
                 )
-                reply_message_id, reply_in_thread, _reply_every_message = (
-                    self._resolve_reply_behavior(msg.metadata)
+                await loop.run_in_executor(
+                    None, self._send_message_sync, receive_id_type, msg.chat_id, "interactive", card
                 )
-                if reply_message_id:
-                    await loop.run_in_executor(
-                        None, lambda: self._reply_message_sync(
-                            reply_message_id, "interactive", card, reply_in_thread=reply_in_thread
-                        ),
-                    )
-                else:
-                    await loop.run_in_executor(
-                        None, self._send_message_sync, receive_id_type, msg.chat_id, "interactive", card
-                    )
                 return
 
             # Determine whether to reply to the inbound message. Group chats can

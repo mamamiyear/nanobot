@@ -393,7 +393,7 @@ class TestToolHintInlineStreaming:
     @pytest.mark.asyncio
     async def test_tool_hint_fallback_group_reply_respects_plain_reply_default(self):
         ch = _make_channel(reply_to_message=True, reply_in_thread_for_group=False)
-        ch._client.im.v1.message.reply.return_value = _mock_send_response("om_hint")
+        ch._client.im.v1.message.create.return_value = _mock_send_response("om_hint")
 
         msg = OutboundMessage(
             channel="feishu",
@@ -403,11 +403,8 @@ class TestToolHintInlineStreaming:
         )
         await ch.send(msg)
 
-        ch._client.im.v1.message.reply.assert_called_once()
-        request = ch._client.im.v1.message.reply.call_args[0][0]
-        assert request.message_id == "om_in"
-        assert request.request_body.reply_in_thread is not True
-        ch._client.im.v1.message.create.assert_not_called()
+        ch._client.im.v1.message.reply.assert_not_called()
+        ch._client.im.v1.message.create.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_consecutive_tool_hints_append(self):
