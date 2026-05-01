@@ -255,6 +255,7 @@ class FeishuConfig(Base):
     tool_hint_prefix: str = "\U0001f527"  # Prefix for inline tool hints (default: 🔧)
     group_policy: Literal["open", "mention"] = "mention"
     reply_to_message: bool = False  # If True, bot replies quote the user's original message
+    reply_in_thread_for_group: bool = False  # If True, group replies open/use topics by default
     streaming: bool = True
     domain: Literal["feishu", "lark"] = "feishu"  # Set to "lark" for international Lark
 
@@ -1211,13 +1212,12 @@ class FeishuChannel(BaseChannel):
         receive_id_type: str,
         chat_id: str,
         reply_message_id: str | None = None,
+        reply_in_thread: bool = False,
     ) -> str | None:
         """Create a CardKit streaming card, send it to chat, return card_id.
 
         When *reply_message_id* is provided the card is delivered via the
-        reply API (with reply_in_thread=True) so it lands inside the
-        originating thread / topic.  Otherwise the plain create-message
-        API is used.
+        reply API; otherwise the plain create-message API is used.
         """
         from lark_oapi.api.cardkit.v1 import CreateCardRequest, CreateCardRequestBody
 
@@ -1253,7 +1253,7 @@ class FeishuChannel(BaseChannel):
                 if reply_message_id:
                     sent = self._reply_message_sync(
                         reply_message_id, "interactive", card_content,
-                        reply_in_thread=True,
+                        reply_in_thread=reply_in_thread,
                     )
                 else:
                     sent = self._send_message_sync(
@@ -1340,6 +1340,33 @@ class FeishuChannel(BaseChannel):
             logger.warning("Error closing streaming on card {}: {}", card_id, e)
             return False
 
+    def _resolve_reply_behavior(
+        self, metadata: dict[str, Any] | None
+    ) -> tuple[str | None, bool, bool]:
+        """Resolve reply target and mode for Feishu outbound messages.
+
+        Returns:
+            (reply_message_id, reply_in_thread, reply_every_message)
+        """
+        meta = metadata or {}
+        reply_message_id: str | None = None
+        message_id = meta.get("message_id")
+        if self.config.reply_to_message and not meta.get("_progress", False):
+            reply_message_id = message_id
+        elif meta.get("thread_id"):
+            # Keep replying when the inbound group message is already inside a topic.
+            reply_message_id = message_id
+
+        chat_type = meta.get("chat_type", "group")
+        is_group_chat = chat_type == "group"
+        reply_in_thread = is_group_chat and (
+            self.config.reply_in_thread_for_group or bool(meta.get("thread_id"))
+        )
+        reply_every_message = bool(reply_message_id) and is_group_chat and (
+            not self.config.reply_in_thread_for_group
+        )
+        return reply_message_id, reply_in_thread, reply_every_message
+
     async def send_delta(
         self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None
     ) -> None:
@@ -1357,6 +1384,7 @@ class FeishuChannel(BaseChannel):
         stream_key = self._stream_key(chat_id, meta)
         loop = asyncio.get_running_loop()
         rid_type = "chat_id" if chat_id.startswith("oc_") else "open_id"
+        reply_message_id, reply_in_thread, _reply_every_message = self._resolve_reply_behavior(meta)
 
         # --- stream end: final update or fallback ---
         if meta.get("_stream_end"):
@@ -1410,15 +1438,10 @@ class FeishuChannel(BaseChannel):
                     ensure_ascii=False,
                 )
                 # Fallback: reply via the Reply API for group chats.
-                # Target message_id — the Feishu API keeps the reply in
-                # the same topic automatically.
-                _f_msg = meta.get("message_id")
-                fallback_msg_id = _f_msg if meta.get("chat_type", "group") == "group" else None
-                if fallback_msg_id:
+                if reply_message_id:
                     await loop.run_in_executor(
                         None, lambda: self._reply_message_sync(
-                            fallback_msg_id, "interactive", card,
-                            reply_in_thread=True,
+                            reply_message_id, "interactive", card, reply_in_thread=reply_in_thread
                         ),
                     )
                 else:
@@ -1438,16 +1461,10 @@ class FeishuChannel(BaseChannel):
 
         now = time.monotonic()
         if buf.card_id is None:
-            # Send the streaming card as a reply for group chats so it
-            # lands inside the originating topic/thread.  Always target
-            # message_id (the actual inbound message) — the Feishu Reply
-            # API keeps the response in the same topic automatically.
-            is_group = meta.get("chat_type", "group") == "group"
-            reply_msg_id = meta.get("message_id") if is_group else None
             card_id = await loop.run_in_executor(
                 None,
                 self._create_streaming_card_sync,
-                rid_type, chat_id, reply_msg_id,
+                rid_type, chat_id, reply_message_id, reply_in_thread,
             )
             if card_id:
                 buf.card_id = card_id
@@ -1491,20 +1508,19 @@ class FeishuChannel(BaseChannel):
                     return
                 # No active streaming card — send as a regular
                 # interactive card with the same 🔧 prefix style.
-                # Use reply API for group chats so the hint stays in topic.
                 card = json.dumps(
                     {"config": {"wide_screen_mode": True}, "elements": [
                         {"tag": "markdown", "content": self._format_tool_hint_delta(hint)},
                     ]},
                     ensure_ascii=False,
                 )
-                _th_msg_id = msg.metadata.get("message_id")
-                _th_chat_type = msg.metadata.get("chat_type", "group")
-                if _th_msg_id and _th_chat_type == "group":
+                reply_message_id, reply_in_thread, _reply_every_message = (
+                    self._resolve_reply_behavior(msg.metadata)
+                )
+                if reply_message_id:
                     await loop.run_in_executor(
                         None, lambda: self._reply_message_sync(
-                            _th_msg_id, "interactive", card,
-                            reply_in_thread=True,
+                            reply_message_id, "interactive", card, reply_in_thread=reply_in_thread
                         ),
                     )
                 else:
@@ -1513,36 +1529,24 @@ class FeishuChannel(BaseChannel):
                     )
                 return
 
-            # Determine whether the first message should quote the user's message.
-            # Only the very first send (media or text) in this call uses reply; subsequent
-            # chunks/media fall back to plain create to avoid redundant quote bubbles.
-            # Always target message_id — the Feishu Reply API keeps replies in the
-            # same topic automatically when the target message is inside a topic.
-            reply_message_id: str | None = None
-            _msg_id = msg.metadata.get("message_id")
-            if self.config.reply_to_message and not msg.metadata.get("_progress", False):
-                reply_message_id = _msg_id
-            # For topic group messages, always reply to keep context in thread
-            elif msg.metadata.get("thread_id"):
-                reply_message_id = _msg_id
-
+            # Determine whether to reply to the inbound message. Group chats can
+            # either keep the existing behavior (first message replies in thread)
+            # or use the new mode where every outbound chunk replies to the
+            # inbound message, opening a new topic only when already inside one.
+            reply_message_id, reply_in_thread, reply_every_message = self._resolve_reply_behavior(
+                msg.metadata
+            )
             first_send = True  # tracks whether the reply has already been used
 
             def _do_send(m_type: str, content: str) -> None:
-                """Send via reply (first message) or create (subsequent).
-
-                For group chats the reply API always uses reply_in_thread=True.
-                The Feishu API automatically keeps replies inside existing
-                topics — reply_in_thread only creates a *new* topic when the
-                target message is a plain (non-topic) message.
-                """
+                """Send via reply or create depending on the configured mode."""
                 nonlocal first_send
-                if reply_message_id and first_send:
-                    first_send = False
-                    chat_type = msg.metadata.get("chat_type", "group")
+                should_reply = reply_message_id and (reply_every_message or first_send)
+                if should_reply:
+                    if not reply_every_message:
+                        first_send = False
                     ok = self._reply_message_sync(
-                        reply_message_id, m_type, content,
-                        reply_in_thread=chat_type == "group",
+                        reply_message_id, m_type, content, reply_in_thread=reply_in_thread
                     )
                     if ok:
                         return

@@ -25,13 +25,18 @@ from nanobot.channels.feishu import FeishuChannel, FeishuConfig
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_feishu_channel(reply_to_message: bool = False, group_policy: str = "mention") -> FeishuChannel:
+def _make_feishu_channel(
+    reply_to_message: bool = False,
+    group_policy: str = "mention",
+    reply_in_thread_for_group: bool = False,
+) -> FeishuChannel:
     config = FeishuConfig(
         enabled=True,
         app_id="cli_test",
         app_secret="secret",
         allow_from=["*"],
         reply_to_message=reply_to_message,
+        reply_in_thread_for_group=reply_in_thread_for_group,
         group_policy=group_policy,
     )
     channel = FeishuChannel(config, MessageBus())
@@ -93,6 +98,10 @@ def test_feishu_config_reply_to_message_defaults_false() -> None:
 def test_feishu_config_reply_to_message_can_be_enabled() -> None:
     config = FeishuConfig(reply_to_message=True)
     assert config.reply_to_message is True
+
+
+def test_feishu_config_reply_in_thread_for_group_defaults_false() -> None:
+    assert FeishuConfig().reply_in_thread_for_group is False
 
 
 # ---------------------------------------------------------------------------
@@ -541,8 +550,8 @@ async def test_session_key_private_chat_no_override() -> None:
 
 @pytest.mark.asyncio
 async def test_reply_uses_reply_in_thread_when_enabled() -> None:
-    """When reply_to_message is True, reply includes reply_in_thread=True."""
-    channel = _make_feishu_channel(reply_to_message=True)
+    """When explicitly enabled, group replies include reply_in_thread=True."""
+    channel = _make_feishu_channel(reply_to_message=True, reply_in_thread_for_group=True)
 
     reply_resp = MagicMock()
     reply_resp.success.return_value = True
@@ -629,9 +638,31 @@ async def test_reply_no_reply_in_thread_for_p2p_chat() -> None:
 
 
 @pytest.mark.asyncio
-async def test_reply_uses_reply_in_thread_for_group_chat() -> None:
-    """reply_in_thread should be True for group chats (identified by chat_type)."""
+async def test_reply_group_chat_stays_plain_reply_by_default() -> None:
+    """Default group replies quote the message without opening a new topic."""
     channel = _make_feishu_channel(reply_to_message=True)
+
+    reply_resp = MagicMock()
+    reply_resp.success.return_value = True
+    channel._client.im.v1.message.reply.return_value = reply_resp
+
+    await channel.send(OutboundMessage(
+        channel="feishu",
+        chat_id="oc_abc",
+        content="hello",
+        metadata={"message_id": "om_001", "chat_type": "group"},
+    ))
+
+    channel._client.im.v1.message.reply.assert_called_once()
+    call_args = channel._client.im.v1.message.reply.call_args
+    request = call_args[0][0]
+    assert request.request_body.reply_in_thread is not True
+
+
+@pytest.mark.asyncio
+async def test_reply_uses_reply_in_thread_for_group_chat_when_configured() -> None:
+    """Configured group replies keep the previous topic-reply behavior."""
+    channel = _make_feishu_channel(reply_to_message=True, reply_in_thread_for_group=True)
 
     reply_resp = MagicMock()
     reply_resp.success.return_value = True
@@ -670,6 +701,7 @@ async def test_reply_targets_message_id_when_in_topic() -> None:
             "message_id": "om_child456",
             "chat_type": "group",
             "root_id": "om_root123",
+            "thread_id": "omt_topic123",
         },
     ))
 
@@ -679,6 +711,58 @@ async def test_reply_targets_message_id_when_in_topic() -> None:
     # Should reply to the inbound message_id, not the root
     assert request.message_id == "om_child456"
     assert request.request_body.reply_in_thread is True
+
+
+@pytest.mark.asyncio
+async def test_reply_keeps_thread_reply_when_group_message_already_in_topic() -> None:
+    """Existing topics keep reply_in_thread even when the new config is disabled."""
+    channel = _make_feishu_channel(reply_to_message=True, reply_in_thread_for_group=False)
+
+    reply_resp = MagicMock()
+    reply_resp.success.return_value = True
+    channel._client.im.v1.message.reply.return_value = reply_resp
+
+    await channel.send(OutboundMessage(
+        channel="feishu",
+        chat_id="oc_abc",
+        content="hello",
+        metadata={
+            "message_id": "om_child456",
+            "chat_type": "group",
+            "thread_id": "omt_topic123",
+        },
+    ))
+
+    channel._client.im.v1.message.reply.assert_called_once()
+    call_args = channel._client.im.v1.message.reply.call_args
+    request = call_args[0][0]
+    assert request.message_id == "om_child456"
+    assert request.request_body.reply_in_thread is True
+
+
+@pytest.mark.asyncio
+async def test_reply_every_group_chunk_when_thread_reply_disabled(tmp_path: Path) -> None:
+    """Default group mode replies every outbound part to the same inbound message."""
+    channel = _make_feishu_channel(reply_to_message=True, reply_in_thread_for_group=False)
+
+    reply_resp = MagicMock()
+    reply_resp.success.return_value = True
+    channel._client.im.v1.message.reply.return_value = reply_resp
+
+    file_path = tmp_path / "report.pdf"
+    file_path.write_bytes(b"demo")
+
+    with patch.object(channel, "_upload_file_sync", return_value="file-key"):
+        await channel.send(OutboundMessage(
+            channel="feishu",
+            chat_id="oc_abc",
+            content="hello",
+            media=[str(file_path)],
+            metadata={"message_id": "om_001", "chat_type": "group"},
+        ))
+
+    assert channel._client.im.v1.message.reply.call_count == 2
+    channel._client.im.v1.message.create.assert_not_called()
 
 
 def test_on_reaction_added_stores_reaction_id() -> None:
