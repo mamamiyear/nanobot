@@ -9,6 +9,7 @@ import type {
   WorkspaceScopePayload,
 } from "./types";
 import { createHostWebSocket } from "./runtime";
+import { scopedLocalStorage } from "./browser-storage";
 
 /** WebSocket readyState constants, referenced by value to stay portable
  * across runtimes that don't expose a global ``WebSocket`` (tests, SSR). */
@@ -26,16 +27,17 @@ function createDefaultSocket(url: string): WebSocket {
 /** Inbound WebSocket ``console.log`` / parse-failure ``console.warn``.
  *
  * - **Dev** (non-production bundle): **on by default** — messages appear at default log level.
- * - **Production**: off unless ``localStorage.setItem('nanobot_debug_ws','1')`` (or ``true``).
- * - **Silence anywhere**: ``localStorage.setItem('nanobot_debug_ws','0')`` (or ``false`` / ``off``).
+ * - **Production**: off unless this instance's ``debug-ws`` preference is enabled.
+ * - **Silence anywhere**: set the same preference to ``0`` (or ``false`` / ``off``).
  * Values are read on every frame; no reload needed.
  */
 function wsInboundDebugEnabled(): boolean {
   if (typeof globalThis === "undefined") return false;
   try {
     if (import.meta.env.MODE === "test") return false;
-    const ls = (globalThis as unknown as { localStorage?: Storage }).localStorage;
-    const raw = ls?.getItem("nanobot_debug_ws")?.trim().toLowerCase() ?? "";
+    const raw = scopedLocalStorage.getItem("debug-ws", "nanobot_debug_ws")
+      ?.trim()
+      .toLowerCase() ?? "";
     if (raw === "0" || raw === "false" || raw === "off" || raw === "no") {
       return false;
     }

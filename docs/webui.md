@@ -56,6 +56,86 @@ WebUI beyond localhost or want a browser password:
 The WebUI is served by the WebSocket channel on port `8765` by default. The
 gateway health endpoint, `18790` by default, is not the browser UI.
 
+## Reverse Proxy Path and Multiple Instances
+
+Set `channels.websocket.base` when a reverse proxy exposes the WebUI below a
+path instead of at the origin root. Build that instance's frontend with the
+same path:
+
+```json
+{
+  "channels": {
+    "websocket": {
+      "host": "127.0.0.1",
+      "port": 14321,
+      "base": "/nanobot-a",
+      "path": "/ws",
+      "tokenIssueSecret": "instance-a-secret"
+    }
+  }
+}
+```
+
+```bash
+cd webui
+VITE_BASE_PATH=/nanobot-a bun run build
+```
+
+This produces one mounted surface:
+
+| Surface | Public path |
+|---|---|
+| UI | `/nanobot-a/` |
+| Static files | `/nanobot-a/assets/*`, `/nanobot-a/brand/*` |
+| Bootstrap and REST | `/nanobot-a/webui/bootstrap`, `/nanobot-a/api/*` |
+| WebSocket with `path: "/ws"` | `/nanobot-a/ws` |
+
+The build records its base path in `nanobot/web/dist`. Gateway startup rejects
+a non-root configuration when that metadata is absent or does not match
+`channels.websocket.base`; rebuild instead of serving a partially working UI.
+
+Nginx must preserve the prefix when proxying. In particular, the upstream URL
+below intentionally has no trailing slash:
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+location = /nanobot-a {
+    return 308 /nanobot-a/;
+}
+
+location ^~ /nanobot-a/ {
+    proxy_pass http://127.0.0.1:14321;
+    proxy_http_version 1.1;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Port $server_port;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+
+    proxy_buffering off;
+    proxy_read_timeout 3600s;
+}
+```
+
+Do not use `proxy_pass http://127.0.0.1:14321/;` with this configuration: its
+trailing slash strips `/nanobot-a`, while nanobot is configured to receive and
+validate that prefix.
+
+To host several nanobot instances on one domain, give each instance a unique
+base, port, bootstrap secret, workspace/config directory, installation, and
+WebUI build. Browser storage is namespaced by the normalized base, so trusted
+instances on the same origin do not share bootstrap credentials, drafts, or UI
+preferences. A path is a routing and storage namespace, not a browser security
+boundary; use separate origins when the applications do not trust each other.
+
 ## First 10 Minutes
 
 Use the WebUI as the primary setup surface:
@@ -317,6 +397,8 @@ If the page does not open, check these in order:
 3. `nanobot gateway` is still running.
 4. You are opening port `8765`, not the gateway health port.
 5. LAN access uses `host: "0.0.0.0"` and a token or token issue secret.
+6. A path-mounted deployment was built with `VITE_BASE_PATH` equal to
+   `channels.websocket.base`, and the proxy preserves that path.
 
 For detailed diagnostics, see
 [`troubleshooting.md#webui-problems`](./troubleshooting.md#webui-problems).

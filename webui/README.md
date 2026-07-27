@@ -68,13 +68,25 @@ bun run dev
 
 Then open `http://127.0.0.1:5173`.
 
-By default the dev server proxies `/api`, `/webui`, `/auth`, and WebSocket traffic to `http://127.0.0.1:8765`.
+By default the dev server proxies `/api`, `/webui`, and `/auth` to
+`http://127.0.0.1:8765`. The application WebSocket connects directly to the
+gateway URL returned by bootstrap; only Vite HMR uses the dev server's socket.
 
 If your gateway listens on a non-default port, point the dev server at it:
 
 ```bash
 NANOBOT_API_URL=http://127.0.0.1:9000 bun run dev
 ```
+
+To develop a path-mounted instance, use the same base in the gateway config and
+Vite environment:
+
+```bash
+VITE_BASE_PATH=/nanobot-a bun run dev
+```
+
+Then open `http://127.0.0.1:5173/nanobot-a/`. REST, bootstrap, static asset, and
+HMR paths use that prefix; the application WebSocket URL comes from bootstrap.
 
 ## Build for packaged runtime
 
@@ -84,10 +96,17 @@ If you want to preview the production bundle locally without rebuilding the whee
 
 ```bash
 cd webui
-bun run build          # writes to ../nanobot/web/dist
+VITE_BASE_PATH=/nanobot-a bun run build
+# writes to ../nanobot/web/dist
 ```
 
-The gateway picks up the new bundle on the next restart.
+Use `VITE_BASE_PATH=/` for the default root deployment. The build writes
+`.nanobot-webui-build.json` into the dist directory, and the gateway checks that
+its base matches `channels.websocket.base` on the next restart.
+
+One dist represents one base. Multiple concurrently deployed nanobot instances
+therefore need separate installations (or otherwise separate dist directories)
+and separate builds.
 
 ## Test
 

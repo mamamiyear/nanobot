@@ -1207,11 +1207,11 @@ describe("ThreadComposer", () => {
 
     expect(onStop).toHaveBeenCalledTimes(1);
     expect(input).toHaveValue("");
-    expect(window.localStorage.getItem("nanobot.webui.slashCommandRecents")).toBeNull();
+    expect(window.localStorage.getItem("nanobot-webui.v2:%2F:slash-command-recents")).toBeNull();
   });
 
   it("orders recent slash commands first for the blank slash menu", () => {
-    window.localStorage.setItem("nanobot.webui.slashCommandRecents", JSON.stringify(["/history"]));
+    window.localStorage.setItem("nanobot-webui.v2:%2F:slash-command-recents", JSON.stringify(["/history"]));
     render(
       <ThreadComposer
         onSend={vi.fn()}

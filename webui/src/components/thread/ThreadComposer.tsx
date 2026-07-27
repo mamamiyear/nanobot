@@ -78,6 +78,7 @@ import { useLogoFallback } from "@/hooks/useLogoFallback";
 import type { SendAttachment, SendOptions } from "@/hooks/useNanobotStream";
 import { usePageVisibility } from "@/hooks/usePageVisibility";
 import { useVoiceRecorder, type VoiceRecorderErrorKey } from "@/hooks/useVoiceRecorder";
+import { scopedLocalStorage } from "@/lib/browser-storage";
 import type {
   CliAppInfo,
   GoalStateWsPayload,
@@ -222,9 +223,12 @@ const SLASH_PALETTE_GAP_PX = 8;
 const SLASH_PALETTE_MAX_HEIGHT_PX = 288;
 const SLASH_PALETTE_MIN_HEIGHT_PX = 144;
 const SLASH_PALETTE_CHROME_PX = 12;
-const SLASH_RECENTS_STORAGE_KEY = "nanobot.webui.slashCommandRecents";
+const SLASH_RECENTS_STORAGE_KEY = "slash-command-recents";
+const LEGACY_SLASH_RECENTS_STORAGE_KEY = "nanobot.webui.slashCommandRecents";
 const SLASH_RECENTS_LIMIT = 5;
-const QUEUED_PROMPTS_STORAGE_PREFIX = "nanobot.webui.composerQueuedGuidance.v1:";
+const QUEUED_PROMPTS_STORAGE_PREFIX = "composer-queued-guidance.v1:";
+const LEGACY_QUEUED_PROMPTS_STORAGE_PREFIX =
+  "nanobot.webui.composerQueuedGuidance.v1:";
 const QUEUED_PROMPTS_LIMIT = 20;
 const QUEUED_PROMPT_MAX_CHARS = 4000;
 
@@ -316,7 +320,10 @@ function slashCommandI18nKey(command: string): string {
 function readSlashRecents(): string[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(SLASH_RECENTS_STORAGE_KEY);
+    const raw = scopedLocalStorage.getItem(
+      SLASH_RECENTS_STORAGE_KEY,
+      LEGACY_SLASH_RECENTS_STORAGE_KEY,
+    );
     const parsed = raw ? JSON.parse(raw) : [];
     return Array.isArray(parsed)
       ? parsed.filter((item): item is string => typeof item === "string").slice(0, SLASH_RECENTS_LIMIT)
@@ -328,14 +335,10 @@ function readSlashRecents(): string[] {
 
 function storeSlashRecents(commands: string[]): void {
   if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(
-      SLASH_RECENTS_STORAGE_KEY,
-      JSON.stringify(commands.slice(0, SLASH_RECENTS_LIMIT)),
-    );
-  } catch {
-    // localStorage may be unavailable in private contexts; command insertion still works.
-  }
+  scopedLocalStorage.setItem(
+    SLASH_RECENTS_STORAGE_KEY,
+    JSON.stringify(commands.slice(0, SLASH_RECENTS_LIMIT)),
+  );
 }
 
 function queuedPromptsStorageKey(key?: string | null): string | null {
@@ -387,7 +390,10 @@ function normalizeQueuedPrompt(item: unknown, index: number): QueuedPrompt | nul
 function readQueuedPrompts(storageKey: string): QueuedPrompt[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(storageKey);
+    const legacyStorageKey = `${LEGACY_QUEUED_PROMPTS_STORAGE_PREFIX}${
+      storageKey.slice(QUEUED_PROMPTS_STORAGE_PREFIX.length)
+    }`;
+    const raw = scopedLocalStorage.getItem(storageKey, legacyStorageKey);
     const parsed = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(parsed)) return [];
     return parsed
@@ -401,25 +407,24 @@ function readQueuedPrompts(storageKey: string): QueuedPrompt[] {
 
 function storeQueuedPrompts(storageKey: string, prompts: QueuedPrompt[]): void {
   if (typeof window === "undefined") return;
-  try {
-    if (prompts.length === 0) {
-      window.localStorage.removeItem(storageKey);
-      return;
-    }
-    window.localStorage.setItem(
-      storageKey,
-      JSON.stringify(
-        prompts.slice(0, QUEUED_PROMPTS_LIMIT).map((prompt) => ({
-          id: prompt.id,
-          text: prompt.text.slice(0, QUEUED_PROMPT_MAX_CHARS),
-          ...(prompt.images?.length ? { images: prompt.images.slice(0, MAX_ATTACHMENTS_PER_MESSAGE) } : {}),
-          ...(prompt.quotedContext ? { quotedContext: prompt.quotedContext } : {}),
-        })),
-      ),
-    );
-  } catch {
-    // localStorage persistence is a convenience; the in-memory queue still works.
+  const legacyStorageKey = `${LEGACY_QUEUED_PROMPTS_STORAGE_PREFIX}${
+    storageKey.slice(QUEUED_PROMPTS_STORAGE_PREFIX.length)
+  }`;
+  if (prompts.length === 0) {
+    scopedLocalStorage.removeItem(storageKey, legacyStorageKey);
+    return;
   }
+  scopedLocalStorage.setItem(
+    storageKey,
+    JSON.stringify(
+      prompts.slice(0, QUEUED_PROMPTS_LIMIT).map((prompt) => ({
+        id: prompt.id,
+        text: prompt.text.slice(0, QUEUED_PROMPT_MAX_CHARS),
+        ...(prompt.images?.length ? { images: prompt.images.slice(0, MAX_ATTACHMENTS_PER_MESSAGE) } : {}),
+        ...(prompt.quotedContext ? { quotedContext: prompt.quotedContext } : {}),
+      })),
+    ),
+  );
 }
 
 function readyImagesToQueuedImages(

@@ -28,6 +28,7 @@ from nanobot.webui.http_utils import (
 from nanobot.webui.http_utils import (
     http_response as _http_response,
 )
+from nanobot.webui.http_utils import normalize_config_path as _normalize_config_path
 
 MediaDirProvider = Callable[[str | None], Path]
 SignedMediaPath = Callable[[Path], dict[str, str] | None]
@@ -103,8 +104,9 @@ def sign_media_path(
     *,
     secret: bytes,
     media_dir: MediaDirProvider = _default_media_dir,
+    url_prefix: str = "/api/media",
 ) -> str | None:
-    """Return a signed ``/api/media/<sig>/<payload>`` URL for a media-root path."""
+    """Return a signed media URL for a path below the configured media root."""
     try:
         media_root = media_dir(None).resolve()
         rel = abs_path.resolve().relative_to(media_root)
@@ -112,7 +114,7 @@ def sign_media_path(
         return None
     payload = b64url_encode(rel.as_posix().encode("utf-8"))
     mac = hmac.new(secret, payload.encode("ascii"), hashlib.sha256).digest()[:16]
-    return f"/api/media/{b64url_encode(mac)}/{payload}"
+    return f"{_normalize_config_path(url_prefix)}/{b64url_encode(mac)}/{payload}"
 
 
 def sign_or_stage_media_path(
@@ -121,9 +123,15 @@ def sign_or_stage_media_path(
     secret: bytes,
     media_dir: MediaDirProvider = _default_media_dir,
     logger: Any | None = None,
+    url_prefix: str = "/api/media",
 ) -> dict[str, str] | None:
     """Sign an existing media-root path, or stage an arbitrary file before signing."""
-    signed = sign_media_path(path, secret=secret, media_dir=media_dir)
+    signed = sign_media_path(
+        path,
+        secret=secret,
+        media_dir=media_dir,
+        url_prefix=url_prefix,
+    )
     if signed is not None:
         return {"url": signed, "name": path.name}
     try:
@@ -137,7 +145,12 @@ def sign_or_stage_media_path(
         if logger is not None:
             logger.warning("failed to stage outbound media {}: {}", path, exc)
         return None
-    signed = sign_media_path(staged, secret=secret, media_dir=media_dir)
+    signed = sign_media_path(
+        staged,
+        secret=secret,
+        media_dir=media_dir,
+        url_prefix=url_prefix,
+    )
     if signed is None:
         return None
     return {"url": signed, "name": path.name}

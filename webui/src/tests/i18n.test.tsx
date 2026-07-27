@@ -180,7 +180,7 @@ const LOCALIZED_CHANNEL_SHELL_KEYS = [
 ];
 const INDEX_HTML = readFileSync(resolve(process.cwd(), "index.html"), "utf8");
 const PREBOOT_SCRIPT = INDEX_HTML.match(
-  /<script>\s*(\(function \(\) \{\s*var localeKey = "nanobot\.locale";[\s\S]*?\}\)\(\);)\s*<\/script>/,
+  /<script>\s*(\(function \(\) \{\s*var copy = \{[\s\S]*?\}\)\(\);)\s*<\/script>/,
 )?.[1];
 const BOOT_COPY_MARKUP = '<span data-boot-copy>Loading nanobot…</span>';
 
@@ -197,8 +197,10 @@ function runPrebootLocale(storedLocale: string) {
   const boot = { textContent: "" };
 
   runInNewContext(PREBOOT_SCRIPT, {
-    localStorage: {
-      getItem: (key: string) => key === LOCALE_STORAGE_KEY ? storedLocale : null,
+    window: {
+      __nanobotWebuiPreboot: {
+        readLocal: () => storedLocale,
+      },
     },
     navigator: { languages: [], language: "en" },
     document: {
@@ -308,7 +310,7 @@ describe("webui i18n", () => {
     await waitFor(() => {
       expect(document.documentElement.lang).toBe("zh-CN");
     });
-    expect(localStorage.getItem("nanobot.locale")).toBe("zh-CN");
+    expect(localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("zh-CN");
     expect(screen.getByPlaceholderText("输入消息…")).toBeInTheDocument();
   });
 

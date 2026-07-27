@@ -50,6 +50,7 @@ import type {
 } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { scopedLocalStorage } from "@/lib/browser-storage";
 import {
   fetchPairingRequests,
   fetchSettings,
@@ -76,11 +77,18 @@ type BootState =
       runtimeSurface: RuntimeSurface;
     };
 
-const SIDEBAR_STORAGE_KEY = "nanobot-webui.sidebar";
-const SESSION_UPDATES_STORAGE_KEY = "nanobot-webui.sidebar.session-updates.v1";
-const LEGACY_COMPLETED_RUNS_STORAGE_KEY = "nanobot-webui.sidebar.completed-runs.v1";
-const RESTART_STARTED_KEY = "nanobot-webui.restartStartedAt";
-const RESTART_ROUTE_KEY = "nanobot-webui.restartRoute";
+const SIDEBAR_STORAGE_KEY = "sidebar";
+const SESSION_UPDATES_STORAGE_KEY = "sidebar.session-updates.v1";
+const COMPLETED_RUNS_STORAGE_KEY = "sidebar.completed-runs.v1";
+const RESTART_STARTED_KEY = "restart-started-at";
+const RESTART_ROUTE_KEY = "restart-route";
+const LEGACY_SIDEBAR_STORAGE_KEY = "nanobot-webui.sidebar";
+const LEGACY_SESSION_UPDATES_STORAGE_KEY =
+  "nanobot-webui.sidebar.session-updates.v1";
+const LEGACY_COMPLETED_RUNS_STORAGE_KEY =
+  "nanobot-webui.sidebar.completed-runs.v1";
+const LEGACY_RESTART_STARTED_KEY = "nanobot-webui.restartStartedAt";
+const LEGACY_RESTART_ROUTE_KEY = "nanobot-webui.restartRoute";
 const RESTART_ROUTE_TTL_MS = 5 * 60 * 1000;
 const SIDEBAR_WIDTH = 272;
 const SIDEBAR_RAIL_WIDTH = 56;
@@ -164,23 +172,25 @@ function fallbackRestartHash(hash: string): boolean {
 
 function rememberRestartRoute(): void {
   if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(RESTART_ROUTE_KEY, window.location.hash || "#/new");
-  } catch {
-    // ignore storage errors
-  }
+  scopedLocalStorage.setItem(RESTART_ROUTE_KEY, window.location.hash || "#/new");
 }
 
 function maybeRestoreRestartHash(hash: string): string {
   if (typeof window === "undefined" || !fallbackRestartHash(hash)) return hash;
   try {
-    const startedAt = Number(window.localStorage.getItem(RESTART_STARTED_KEY) ?? "0");
-    const storedHash = window.localStorage.getItem(RESTART_ROUTE_KEY);
+    const startedAt = Number(scopedLocalStorage.getItem(
+      RESTART_STARTED_KEY,
+      LEGACY_RESTART_STARTED_KEY,
+    ) ?? "0");
+    const storedHash = scopedLocalStorage.getItem(
+      RESTART_ROUTE_KEY,
+      LEGACY_RESTART_ROUTE_KEY,
+    );
     if (!startedAt || !storedHash || Date.now() - startedAt > RESTART_ROUTE_TTL_MS) {
-      window.localStorage.removeItem(RESTART_ROUTE_KEY);
+      scopedLocalStorage.removeItem(RESTART_ROUTE_KEY, LEGACY_RESTART_ROUTE_KEY);
       return hash;
     }
-    window.localStorage.removeItem(RESTART_ROUTE_KEY);
+    scopedLocalStorage.removeItem(RESTART_ROUTE_KEY, LEGACY_RESTART_ROUTE_KEY);
     const nextHash = storedHash.startsWith("#") ? storedHash : `#${storedHash}`;
     window.history.replaceState(
       null,
@@ -339,7 +349,10 @@ function AuthForm({
 function readSidebarOpen(): boolean {
   if (typeof window === "undefined") return true;
   try {
-    const raw = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    const raw = scopedLocalStorage.getItem(
+      SIDEBAR_STORAGE_KEY,
+      LEGACY_SIDEBAR_STORAGE_KEY,
+    );
     if (raw === null) return true;
     return raw === "1";
   } catch {
@@ -351,8 +364,14 @@ function readSessionUpdateChatIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
     const raw =
-      window.localStorage.getItem(SESSION_UPDATES_STORAGE_KEY)
-      ?? window.localStorage.getItem(LEGACY_COMPLETED_RUNS_STORAGE_KEY);
+      scopedLocalStorage.getItem(
+        SESSION_UPDATES_STORAGE_KEY,
+        LEGACY_SESSION_UPDATES_STORAGE_KEY,
+      )
+      ?? scopedLocalStorage.getItem(
+        COMPLETED_RUNS_STORAGE_KEY,
+        LEGACY_COMPLETED_RUNS_STORAGE_KEY,
+      );
     const parsed = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(parsed)) return new Set();
     return new Set(parsed.filter((item): item is string => typeof item === "string"));
@@ -362,14 +381,10 @@ function readSessionUpdateChatIds(): Set<string> {
 }
 
 function writeSessionUpdateChatIds(chatIds: Set<string>): void {
-  try {
-    window.localStorage.setItem(
-      SESSION_UPDATES_STORAGE_KEY,
-      JSON.stringify(Array.from(chatIds)),
-    );
-  } catch {
-    // ignore storage errors (private mode, etc.)
-  }
+  scopedLocalStorage.setItem(
+    SESSION_UPDATES_STORAGE_KEY,
+    JSON.stringify(Array.from(chatIds)),
+  );
 }
 
 function normalizeWorkspaceScope(scope: WorkspaceScopePayload): WorkspaceScopePayload {
@@ -726,7 +741,7 @@ export default function App() {
 
   const refreshReadyClient = useCallback(
     async (client: NanobotClient, fallbackSurface: RuntimeSurface) => {
-      const boot = await fetchBootstrap("", bootstrapSecretRef.current);
+      const boot = await fetchBootstrap(undefined, bootstrapSecretRef.current);
       const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
       const runtimeSurface = boot.runtime_surface
         ? toRuntimeSurface(boot.runtime_surface)
@@ -761,7 +776,7 @@ export default function App() {
       (async () => {
         setState({ status: "loading" });
         try {
-          const boot = await fetchBootstrap("", secret);
+          const boot = await fetchBootstrap(undefined, secret);
           if (cancelled) return;
           if (secret) saveSecret(secret);
           const url = deriveWsUrl(boot.ws_path, boot.token, boot.ws_url);
@@ -886,22 +901,14 @@ export default function App() {
       throw new Error("native engine restart is unavailable");
     }
     rememberRestartRoute();
-    try {
-      window.localStorage.setItem(RESTART_STARTED_KEY, String(Date.now()));
-    } catch {
-      // ignore storage errors
-    }
+    scopedLocalStorage.setItem(RESTART_STARTED_KEY, String(Date.now()));
     try {
       await runtimeHost.restartEngine();
       const refreshed = await refreshReadyClient(state.client, state.runtimeSurface);
       return refreshed.token;
     } finally {
-      try {
-        window.localStorage.removeItem(RESTART_STARTED_KEY);
-        window.localStorage.removeItem(RESTART_ROUTE_KEY);
-      } catch {
-        // ignore storage errors
-      }
+      scopedLocalStorage.removeItem(RESTART_STARTED_KEY, LEGACY_RESTART_STARTED_KEY);
+      scopedLocalStorage.removeItem(RESTART_ROUTE_KEY, LEGACY_RESTART_ROUTE_KEY);
     }
   };
 
@@ -1041,14 +1048,10 @@ function Shell({
   }, [token]);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        SIDEBAR_STORAGE_KEY,
-        hostSidebarOpen ? "1" : "0",
-      );
-    } catch {
-      // ignore storage errors (private mode, etc.)
-    }
+    scopedLocalStorage.setItem(
+      SIDEBAR_STORAGE_KEY,
+      hostSidebarOpen ? "1" : "0",
+    );
   }, [hostSidebarOpen]);
 
   useEffect(() => {
@@ -1684,11 +1687,7 @@ function Shell({
     restartSawDisconnectRef.current = false;
     setIsRestarting(true);
     rememberRestartRoute();
-    try {
-      window.localStorage.setItem(RESTART_STARTED_KEY, String(Date.now()));
-    } catch {
-      // ignore storage errors
-    }
+    scopedLocalStorage.setItem(RESTART_STARTED_KEY, String(Date.now()));
     void client.sendSystemCommand(chatId, "/restart").catch(() => {});
   }, [activeSession?.chatId, client]);
 
@@ -1734,11 +1733,10 @@ function Shell({
   useEffect(() => {
     return client.onStatus((status) => {
       const startedAt = (() => {
-        try {
-          return Number(window.localStorage.getItem(RESTART_STARTED_KEY) ?? "0");
-        } catch {
-          return 0;
-        }
+        return Number(scopedLocalStorage.getItem(
+          RESTART_STARTED_KEY,
+          LEGACY_RESTART_STARTED_KEY,
+        ) ?? "0");
       })();
       if (!startedAt) return;
       if (status !== "open") {
@@ -1747,12 +1745,8 @@ function Shell({
       }
       const elapsedMs = Date.now() - startedAt;
       if (!restartSawDisconnectRef.current && elapsedMs < 1500) return;
-      try {
-        window.localStorage.removeItem(RESTART_STARTED_KEY);
-        window.localStorage.removeItem(RESTART_ROUTE_KEY);
-      } catch {
-        // ignore storage errors
-      }
+      scopedLocalStorage.removeItem(RESTART_STARTED_KEY, LEGACY_RESTART_STARTED_KEY);
+      scopedLocalStorage.removeItem(RESTART_ROUTE_KEY, LEGACY_RESTART_ROUTE_KEY);
       setIsRestarting(false);
       setRestartToast(t("app.restart.completed", { seconds: (elapsedMs / 1000).toFixed(1) }));
       window.setTimeout(() => setRestartToast(null), 3_500);

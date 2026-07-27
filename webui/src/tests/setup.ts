@@ -57,5 +57,5 @@ beforeEach(async () => {
   await i18n.changeLanguage("en");
   document.documentElement.lang = "en";
   document.title = "nanobot";
-  localStorage.setItem("nanobot.locale", "en");
+  localStorage.setItem("nanobot-webui.v2:%2F:locale", "en");
 });

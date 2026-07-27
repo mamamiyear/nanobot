@@ -26,6 +26,7 @@ from nanobot.webui.media_api import (
     b64url_decode,
     b64url_encode,
 )
+from nanobot.webui.transcript import replay_transcript_to_ui_messages
 
 from .ws_test_client import InProcessHttpChannel
 from .ws_test_client import http_get as _http_get
@@ -47,12 +48,14 @@ def _ch(
     session_manager: SessionManager | None = None,
     workspace_path: Path | None = None,
     port: int,
+    base: str = "/",
 ) -> WebSocketChannel:
     cfg = {
         "enabled": True,
         "allowFrom": ["*"],
         "host": "127.0.0.1",
         "port": port,
+        "base": base,
         "path": "/",
         "websocketRequiresToken": False,
     }
@@ -135,6 +138,68 @@ def test_sign_media_path_round_trips_via_hmac(
     assert b64url_decode(payload).decode() == "a.png"
 
 
+def test_sign_media_path_uses_configured_base(
+    bus: MagicMock,
+    tmp_path: Path,
+) -> None:
+    media = tmp_path / "media"
+    media.mkdir()
+    target = media / "a.png"
+    target.write_bytes(_PNG_BYTES)
+    channel = _ch(bus, port=0, base="/nanobot")
+
+    with patch("nanobot.webui.media_gateway.get_media_dir", return_value=media):
+        url = channel.gateway.media.sign_media_path(target)
+
+    assert url is not None
+    assert url.startswith("/nanobot/api/media/")
+
+
+def test_historical_root_media_urls_are_remounted(
+    bus: MagicMock,
+) -> None:
+    channel = _ch(bus, port=0, base="/nanobot")
+
+    assert (
+        channel.gateway.media.remount_media_url("/api/media/old-sig/old-payload")
+        == "/nanobot/api/media/old-sig/old-payload"
+    )
+    assert (
+        channel.gateway.media.remount_media_url(
+            "/nanobot/api/media/current-sig/current-payload"
+        )
+        == "/nanobot/api/media/current-sig/current-payload"
+    )
+
+
+def test_transcript_replay_remounts_historical_root_media_urls(
+    bus: MagicMock,
+) -> None:
+    channel = _ch(bus, port=0, base="/nanobot")
+
+    messages = replay_transcript_to_ui_messages(
+        [
+            {"event": "user", "chat_id": "replay", "text": "render"},
+            {
+                "event": "message",
+                "chat_id": "replay",
+                "text": "ready",
+                "media_urls": [
+                    {
+                        "url": "/api/media/old-sig/old-payload",
+                        "name": "intro.mp4",
+                    }
+                ],
+            },
+        ],
+        remount_media_url=channel.gateway.media.remount_media_url,
+    )
+
+    assert messages[1]["media"][0]["url"] == (
+        "/nanobot/api/media/old-sig/old-payload"
+    )
+
+
 def test_local_markdown_image_is_staged_and_rewritten(
     bus: MagicMock,
     tmp_path: Path,
@@ -154,6 +219,25 @@ def test_local_markdown_image_is_staged_and_rewritten(
     staged = list((media / "websocket").iterdir())
     assert len(staged) == 1
     assert staged[0].read_bytes() == _PNG_BYTES
+
+
+def test_historical_root_markdown_media_is_remounted(
+    bus: MagicMock,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    channel = _ch(
+        bus,
+        workspace_path=workspace,
+        port=0,
+        base="/nanobot",
+    )
+    text = "![diagram](/api/media/old-sig/old-payload)"
+
+    assert channel.gateway.media.rewrite_local_markdown_images(text) == (
+        "![diagram](/nanobot/api/media/old-sig/old-payload)"
+    )
 
 
 def test_local_markdown_video_is_staged_and_rewritten(

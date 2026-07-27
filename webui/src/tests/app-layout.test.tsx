@@ -248,11 +248,11 @@ describe("App layout", () => {
     sessionUpdateHandlers.clear();
     window.history.replaceState(null, "", "/");
     setNavigatorPlatform("Linux x86_64");
-    localStorage.removeItem("nanobot-webui.sidebar");
-    localStorage.removeItem("nanobot-webui.sidebar.completed-runs.v1");
-    localStorage.removeItem("nanobot-webui.sidebar.session-updates.v1");
-    localStorage.removeItem("nanobot-webui.restartStartedAt");
-    localStorage.removeItem("nanobot-webui.restartRoute");
+    localStorage.removeItem("nanobot-webui.v2:%2F:sidebar");
+    localStorage.removeItem("nanobot-webui.v2:%2F:sidebar.completed-runs.v1");
+    localStorage.removeItem("nanobot-webui.v2:%2F:sidebar.session-updates.v1");
+    localStorage.removeItem("nanobot-webui.v2:%2F:restart-started-at");
+    localStorage.removeItem("nanobot-webui.v2:%2F:restart-route");
     vi.mocked(fetchBootstrap).mockReset().mockResolvedValue({
       token: "tok",
       api_token: "api-tok",
@@ -311,7 +311,7 @@ describe("App layout", () => {
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
 
     expect(await screen.findByText("Invalid password. Try again.")).toBeInTheDocument();
-    expect(fetchBootstrap).toHaveBeenLastCalledWith("", "wrong-password");
+    expect(fetchBootstrap).toHaveBeenLastCalledWith(undefined, "wrong-password");
     expect(connectSpy).not.toHaveBeenCalled();
   });
 
@@ -348,8 +348,8 @@ describe("App layout", () => {
   });
 
   it("restores the Settings route after a restart fallback hash", async () => {
-    localStorage.setItem("nanobot-webui.restartStartedAt", String(Date.now()));
-    localStorage.setItem("nanobot-webui.restartRoute", "#/settings?section=channels");
+    localStorage.setItem("nanobot-webui.v2:%2F:restart-started-at", String(Date.now()));
+    localStorage.setItem("nanobot-webui.v2:%2F:restart-route", "#/settings?section=channels");
     window.history.replaceState(null, "", "/#/new");
     mockFetchRoutes({
       "/api/settings": baseSettingsPayload(),
@@ -1316,7 +1316,7 @@ describe("App layout", () => {
       },
     ];
     localStorage.setItem(
-      "nanobot-webui.sidebar.session-updates.v1",
+      "nanobot-webui.v2:%2F:sidebar.session-updates.v1",
       JSON.stringify(["chat-b"]),
     );
 
@@ -1595,7 +1595,7 @@ describe("App layout", () => {
     );
 
     localStorage.setItem(
-      "nanobot-webui.settings-preferences",
+      "nanobot-webui.v2:%2F:settings-preferences",
       JSON.stringify({ brandLogos: true }),
     );
     render(<App />);

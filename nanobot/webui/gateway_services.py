@@ -67,6 +67,7 @@ def build_gateway_services(
         workspace_path=workspace_path,
         logger=logger,
         attachment_limits=ingress.attachments,
+        base_path=config.base,
     )
     transcripts = WebUITranscriptRecorder(log=logger)
     workspaces = WebUIWorkspaceController(

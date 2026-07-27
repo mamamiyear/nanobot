@@ -399,7 +399,7 @@ describe("SettingsView Apps catalog", () => {
   });
 
   afterEach(() => {
-    localStorage.removeItem("nanobot-webui.settings-preferences");
+    localStorage.removeItem("nanobot-webui.v2:%2F:settings-preferences");
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -415,7 +415,7 @@ describe("SettingsView Apps catalog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Diff" }));
 
     await waitFor(() => {
-      const saved = JSON.parse(localStorage.getItem("nanobot-webui.settings-preferences") || "{}");
+      const saved = JSON.parse(localStorage.getItem("nanobot-webui.v2:%2F:settings-preferences") || "{}");
       expect(saved.fileEditDisplayMode).toBe("diff");
     });
   });

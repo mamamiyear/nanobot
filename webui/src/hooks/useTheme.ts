@@ -7,14 +7,16 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { scopedLocalStorage } from "@/lib/browser-storage";
 
 type Theme = "light" | "dark";
-const STORAGE_KEY = "nanobot-webui.theme";
+const STORAGE_KEY = "theme";
+const LEGACY_STORAGE_KEY = "nanobot-webui.theme";
 const ThemeContext = createContext<Theme>("light");
 
 function readStored(): Theme | null {
   try {
-    const v = localStorage.getItem(STORAGE_KEY);
+    const v = scopedLocalStorage.getItem(STORAGE_KEY, LEGACY_STORAGE_KEY);
     return v === "light" || v === "dark" ? v : null;
   } catch {
     return null;
@@ -46,7 +48,7 @@ export function useTheme(): {
   useEffect(() => {
     applyTheme(theme);
     try {
-      localStorage.setItem(STORAGE_KEY, theme);
+      scopedLocalStorage.setItem(STORAGE_KEY, theme);
     } catch {
       // ignore
     }

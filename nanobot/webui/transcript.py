@@ -71,6 +71,7 @@ def rewrite_local_markdown_images(
     *,
     workspace_path: Path,
     sign_path: Callable[[Path], Mapping[str, Any] | None],
+    media_url_prefix: str = "/api/media",
 ) -> str:
     """Rewrite markdown media paths inside the workspace to signed WebUI media URLs."""
     if "![" not in text:
@@ -80,7 +81,12 @@ def rewrite_local_markdown_images(
         url = raw_url.strip()
         if url.startswith("<") and url.endswith(">"):
             url = url[1:-1].strip()
-        if not url or url.startswith(("/api/media/", "#")):
+        mounted_media_prefix = f"{media_url_prefix.rstrip('/')}/"
+        if url.startswith(mounted_media_prefix) or url.startswith("#"):
+            return None
+        if url.startswith("/api/media/"):
+            return f"{mounted_media_prefix}{url[len('/api/media/'):]}"
+        if not url:
             return None
         parsed = urlparse(url)
         if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment:
@@ -1240,16 +1246,23 @@ def _merge_unique_tool_trace_lines(
     return traces, added
 
 
-def _media_from_signed_urls(value: Any) -> list[dict[str, Any]]:
+def _media_from_signed_urls(
+    value: Any,
+    *,
+    remount_media_url: Callable[[str], str] | None = None,
+) -> list[dict[str, Any]]:
     media: list[dict[str, Any]] = []
     urls = value if isinstance(value, list) else []
     for m in urls:
         if isinstance(m, dict) and m.get("url"):
             name = str(m.get("name") or "")
+            url = str(m["url"])
+            if remount_media_url is not None:
+                url = remount_media_url(url)
             media.append(
                 {
                     "kind": _media_kind_from_name(name),
-                    "url": str(m["url"]),
+                    "url": url,
                     "name": name,
                 },
             )
@@ -1262,6 +1275,7 @@ def replay_transcript_to_ui_messages(
     augment_user_media: Callable[[list[str]], list[dict[str, Any]]] | None = None,
     augment_assistant_media: Callable[[list[str]], list[dict[str, Any]]] | None = None,
     augment_assistant_text: Callable[[str], str] | None = None,
+    remount_media_url: Callable[[str], str] | None = None,
 ) -> list[dict[str, Any]]:
     """Fold JSONL records into ``UIMessage``-shaped dicts for the WebUI.
 
@@ -1911,7 +1925,10 @@ def replay_transcript_to_ui_messages(
             if media_paths and augment_assistant_media is not None:
                 media = augment_assistant_media(media_paths)
             if not media and (not media_paths or augment_assistant_media is None):
-                media = _media_from_signed_urls(rec.get("media_urls"))
+                media = _media_from_signed_urls(
+                    rec.get("media_urls"),
+                    remount_media_url=remount_media_url,
+                )
             extra: dict[str, Any] = {"content": content_s}
             if media:
                 extra["media"] = media
@@ -1997,6 +2014,7 @@ def build_webui_thread_response(
     augment_user_media: Callable[[list[str]], list[dict[str, Any]]] | None = None,
     augment_assistant_media: Callable[[list[str]], list[dict[str, Any]]] | None = None,
     augment_assistant_text: Callable[[str], str] | None = None,
+    remount_media_url: Callable[[str], str] | None = None,
     session_messages: list[dict[str, Any]] | None = None,
     limit: int | None = None,
     direction: str | None = None,
@@ -2018,6 +2036,7 @@ def build_webui_thread_response(
         augment_user_media=augment_user_media,
         augment_assistant_media=augment_assistant_media,
         augment_assistant_text=augment_assistant_text,
+        remount_media_url=remount_media_url,
     )
     payload = {
         "schemaVersion": WEBUI_TRANSCRIPT_SCHEMA_VERSION,

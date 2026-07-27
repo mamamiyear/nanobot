@@ -51,6 +51,36 @@ describe("bootstrap helpers", () => {
     );
   });
 
+  it("does not double-prefix a server-provided mounted websocket URL", () => {
+    expect(
+      deriveWsUrl(
+        "/nanobot-a/ws",
+        "tok",
+        "wss://example.test/nanobot-a/ws",
+      ),
+    ).toBe("wss://example.test/nanobot-a/ws?token=tok");
+  });
+
+  it("mounts the bootstrap request beneath an explicit WebUI base", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      token: "ws-token",
+      api_token: "api-token",
+      ws_path: "/nanobot-a/ws",
+      expires_in: 300,
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchBootstrap("/nanobot-a");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/nanobot-a/webui/bootstrap",
+      expect.objectContaining({ credentials: "same-origin" }),
+    );
+  });
+
   it("falls back to the current window host for legacy bootstrap payloads", () => {
     expect(deriveWsUrl("/", "tok")).toBe(
       "ws://localhost:3000/?token=tok",

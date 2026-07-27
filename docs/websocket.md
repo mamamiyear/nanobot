@@ -215,7 +215,8 @@ All fields go under `channels.websocket` in `config.json`.
 | `enabled` | bool | `true` | Enable the WebSocket server. Set to `false` only when you intentionally do not want the bundled WebUI/WebSocket surface. |
 | `host` | string | `"127.0.0.1"` | Bind address. Use `"0.0.0.0"` to accept external connections. |
 | `port` | int | `8765` | Listen port. |
-| `path` | string | `"/"` | WebSocket upgrade path. Trailing slashes are normalized (root `/` is preserved). |
+| `base` | string | `"/"` | Mount prefix for the WebUI HTTP routes, static files, REST API, token issue endpoint, and WebSocket. Use `/` or absolute URI-safe path segments such as `/nanobot-a`; non-root trailing slashes are normalized away. The bundled frontend must be built with the same `VITE_BASE_PATH`. |
+| `path` | string | `"/"` | WebSocket upgrade path relative to `base`. Trailing slashes are normalized (root `/` is preserved). For example, `base: "/nanobot-a"` and `path: "/ws"` expose `/nanobot-a/ws`. |
 | `maxMessageBytes` | int | `37748736` | Maximum inbound message size in bytes (1 KB – 40 MB). Default (36 MB) is sized to accept up to 4 base64-encoded image attachments at 8 MB each; lower it if the channel only carries text. |
 
 ### Authentication
@@ -224,7 +225,7 @@ All fields go under `channels.websocket` in `config.json`.
 |-------|------|---------|-------------|
 | `token` | string | `""` | Static shared secret. When set, clients must provide `?token=<value>` matching this secret (timing-safe comparison). Issued tokens are also accepted as a fallback. |
 | `websocketRequiresToken` | bool | `true` | When `true` and no static `token` is configured, clients must still present a valid issued token. Set to `false` to allow unauthenticated connections (only safe for local/trusted networks). |
-| `tokenIssuePath` | string | `""` | HTTP path for issuing short-lived tokens. Must differ from `path`. See [Token Issuance](#token-issuance). |
+| `tokenIssuePath` | string | `""` | HTTP path for issuing short-lived tokens, relative to `base`. Must differ from `path`. See [Token Issuance](#token-issuance). |
 | `tokenIssueSecret` | string | `""` | Secret required to obtain tokens via the issue endpoint. If empty, any client can obtain WebSocket connection tokens from `tokenIssuePath` (logged as a warning). `/webui/bootstrap` still issues WebUI REST API tokens for same-machine localhost browser requests; remote or forwarded bootstrap requires `tokenIssueSecret` or `token`. |
 | `tokenTtlS` | int | `300` | Time-to-live for issued tokens in seconds (30 – 86,400). |
 
@@ -270,7 +271,7 @@ For production deployments where `websocketRequiresToken: true`, use short-lived
 3. Client opens WebSocket with `?token=nbwt_aBcDeFg...&client_id=...`.
 4. The token is consumed (single use) and cannot be reused.
 
-The embedded WebUI's `/webui/bootstrap` route also returns a WebSocket token.
+The embedded WebUI's `{base}/webui/bootstrap` route also returns a WebSocket token.
 It returns a separate `api_token` for REST routes to same-machine localhost
 browser requests, or after the request proves knowledge of `tokenIssueSecret`
 or the static `token`.
@@ -282,6 +283,7 @@ or the static `token`.
   "channels": {
     "websocket": {
       "port": 8765,
+      "base": "/nanobot-a",
       "path": "/ws",
       "tokenIssuePath": "/auth/token",
       "tokenIssueSecret": "your-secret-here",
@@ -293,6 +295,9 @@ or the static `token`.
   }
 }
 ```
+
+This example exposes the issue endpoint at `/nanobot-a/auth/token` and the
+WebSocket at `/nanobot-a/ws`.
 
 Client flow:
 

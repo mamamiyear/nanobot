@@ -48,6 +48,12 @@ from nanobot.webui.cli_apps_api import normalize_cli_app_mentions
 from nanobot.webui.forking import handle_webui_fork_chat
 from nanobot.webui.gateway_services import GatewayServices
 from nanobot.webui.http_utils import (
+    mount_base_path as _mount_base_path,
+)
+from nanobot.webui.http_utils import (
+    normalize_base_path as _normalize_base_path,
+)
+from nanobot.webui.http_utils import (
     normalize_config_path as _normalize_config_path,
 )
 from nanobot.webui.http_utils import (
@@ -67,7 +73,9 @@ _WEBUI_HTTP_OPEN_TIMEOUT_S = 360.0
 class WebSocketConfig(Base):
     """WebSocket server channel configuration.
 
-    Clients connect with URLs like ``ws://{host}:{port}{path}?client_id=...&token=...``.
+    Clients connect to the effective endpoint assembled from ``base`` and ``path``.
+    - ``base``: Mount prefix shared by the WebUI, HTTP API, media, token issue route,
+      and WebSocket endpoint. ``/`` preserves the root-mounted behavior.
     - ``client_id``: Used for ``allow_from`` authorization; if omitted, a value is generated and logged.
     - ``token``: If non-empty, the ``token`` query param may match this static secret; short-lived tokens
       from ``token_issue_path`` are also accepted.
@@ -88,6 +96,7 @@ class WebSocketConfig(Base):
     host: str = "127.0.0.1"
     port: int = 8765
     unix_socket_path: str = ""
+    base: str = "/"
     path: str = "/"
     token: str = ""
     token_issue_path: str = ""
@@ -125,6 +134,11 @@ class WebSocketConfig(Base):
         if not value.startswith("/"):
             raise ValueError('path must start with "/"')
         return _normalize_config_path(value)
+
+    @field_validator("base")
+    @classmethod
+    def base_path_format(cls, value: str) -> str:
+        return _normalize_base_path(value)
 
     @field_validator("token_issue_path")
     @classmethod
@@ -258,6 +272,10 @@ class WebSocketChannel(BaseChannel):
         self._conn_default: dict[Any, str] = {}
         # Connections authenticated with a one-time token from /webui/bootstrap.
         self._webui_connections: set[Any] = set()
+        # Whether each accepted WebSocket handshake came from a local browser.
+        # This must be derived from forwarding headers, not only the TCP peer:
+        # a reverse proxy connects from loopback on behalf of remote clients.
+        self._workspace_control_connections: dict[Any, bool] = {}
         self._stop_event: asyncio.Event | None = None
         self._server_task: asyncio.Task[None] | None = None
 
@@ -274,6 +292,9 @@ class WebSocketChannel(BaseChannel):
     # -- Subscription bookkeeping -------------------------------------------
 
     def _workspace_controls_available(self, connection: Any) -> bool:
+        cached = self._workspace_control_connections.get(connection)
+        if cached is not None:
+            return cached
         return self._http_router.workspace_controls_available(connection)
 
     def _attach(self, connection: Any, chat_id: str) -> None:
@@ -293,6 +314,7 @@ class WebSocketChannel(BaseChannel):
                 self._subs.pop(cid, None)
         self._conn_default.pop(connection, None)
         self._webui_connections.discard(connection)
+        self._workspace_control_connections.pop(connection, None)
 
     async def _maybe_push_active_goal_state(self, chat_id: str) -> None:
         """Replay an active sustained goal from session metadata after *chat_id* is subscribed.
@@ -341,7 +363,7 @@ class WebSocketChannel(BaseChannel):
         return WebSocketConfig().model_dump(by_alias=True)
 
     def _expected_path(self) -> str:
-        return _normalize_config_path(self.config.path)
+        return _mount_base_path(self.config.base, self.config.path)
 
     def _build_ssl_context(self) -> ssl.SSLContext | None:
         cert = self.config.ssl_certfile.strip()
@@ -371,7 +393,15 @@ class WebSocketChannel(BaseChannel):
                 client_id = client_id[:128]
             if not self.is_allowed(client_id):
                 return connection.respond(403, "Forbidden")
-            return self._authorize_websocket_handshake(connection, query)
+            response = self._authorize_websocket_handshake(connection, query)
+            if response is None:
+                self._workspace_control_connections[connection] = (
+                    self._http_router.workspace_controls_available(
+                        connection,
+                        request.headers,
+                    )
+                )
+            return response
 
         # Everything else goes to the HTTP handler
         return await self._http_router.dispatch(connection, request)
@@ -428,20 +458,24 @@ class WebSocketChannel(BaseChannel):
         self.logger.info(
             "WebSocket server listening on {}",
             (
-                f"unix:{self.config.unix_socket_path}{self.config.path}"
+                f"unix:{self.config.unix_socket_path}{self._expected_path()}"
                 if self.config.unix_socket_path
-                else f"{scheme}://{self.config.host}:{self.config.port}{self.config.path}"
+                else f"{scheme}://{self.config.host}:{self.config.port}{self._expected_path()}"
             ),
         )
         if self.config.token_issue_path:
+            token_issue_path = _mount_base_path(
+                self.config.base,
+                self.config.token_issue_path,
+            )
             self.logger.info(
                 "WebSocket token issue route: {}",
                 (
-                    f"unix:{self.config.unix_socket_path}{_normalize_config_path(self.config.token_issue_path)}"
+                    f"unix:{self.config.unix_socket_path}{token_issue_path}"
                     if self.config.unix_socket_path
                     else (
                         f"{scheme}://{self.config.host}:{self.config.port}"
-                        f"{_normalize_config_path(self.config.token_issue_path)}"
+                        f"{token_issue_path}"
                     )
                 ),
             )
@@ -769,6 +803,7 @@ class WebSocketChannel(BaseChannel):
         self._conn_chats.clear()
         self._conn_default.clear()
         self._webui_connections.clear()
+        self._workspace_control_connections.clear()
         self._tokens.clear()
 
     async def _safe_send_to(self, connection: Any, raw: str, *, label: str = "") -> None:

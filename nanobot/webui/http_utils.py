@@ -15,6 +15,7 @@ from websockets.datastructures import Headers
 from websockets.http11 import Response
 
 QueryParams = dict[str, list[str]]
+_BASE_PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._~-]+$")
 
 
 def strip_trailing_slash(path: str) -> str:
@@ -25,6 +26,59 @@ def strip_trailing_slash(path: str) -> str:
 
 def normalize_config_path(path: str) -> str:
     return strip_trailing_slash(path)
+
+
+def normalize_base_path(path: str) -> str:
+    """Return the canonical WebUI mount prefix.
+
+    ``/`` is the root mount. Non-root values keep a leading slash and drop
+    trailing slashes. Restricting segments to URI-unreserved characters keeps
+    routing comparisons unambiguous across browsers and reverse proxies.
+    """
+    value = path.strip()
+    if not value.startswith("/"):
+        raise ValueError('base must start with "/"')
+    if any(char in value for char in ("?", "#", "\\", "\x00")):
+        raise ValueError("base contains an invalid character")
+    value = strip_trailing_slash(value)
+    if value == "/":
+        return value
+    segments = value[1:].split("/")
+    if any(
+        not segment
+        or segment in {".", ".."}
+        or _BASE_PATH_SEGMENT_RE.fullmatch(segment) is None
+        for segment in segments
+    ):
+        raise ValueError("base must contain only safe, non-empty URL path segments")
+    return value
+
+
+def mount_base_path(base: str, path: str) -> str:
+    """Mount an absolute application path below a normalized WebUI base."""
+    normalized_base = normalize_base_path(base)
+    if not path.startswith("/"):
+        raise ValueError('path must start with "/"')
+    normalized_path = normalize_config_path(path)
+    if normalized_base == "/":
+        return normalized_path
+    if normalized_path == "/":
+        return normalized_base
+    return f"{normalized_base}{normalized_path}"
+
+
+def strip_base_path(path: str, base: str) -> str | None:
+    """Strip *base* from *path* while respecting URL segment boundaries."""
+    normalized_path = normalize_config_path(path)
+    normalized_base = normalize_base_path(base)
+    if normalized_base == "/":
+        return normalized_path
+    if normalized_path == normalized_base:
+        return "/"
+    prefix = f"{normalized_base}/"
+    if normalized_path.startswith(prefix):
+        return normalized_path[len(normalized_base):]
+    return None
 
 
 def case_insensitive_header(headers: Any, key: str) -> str:

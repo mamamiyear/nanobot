@@ -2205,6 +2205,63 @@ def test_open_webui_browser_redacts_bootstrap_secret(monkeypatch, capsys) -> Non
     assert "super-secret" not in output
 
 
+def test_webui_browser_url_includes_configured_base() -> None:
+    config = Config.model_validate(
+        {
+            "channels": {
+                "websocket": {
+                    "host": "127.0.0.1",
+                    "port": 14321,
+                    "base": "/nanobot-a",
+                    "tokenIssueSecret": "instance-secret",
+                }
+            }
+        }
+    )
+
+    url = cli_commands._webui_browser_url(config)
+
+    assert url.startswith("http://127.0.0.1:14321/nanobot-a/#/?bootstrapSecret=")
+    assert parse_qs(urlparse(url).fragment.removeprefix("/?")) == {
+        "bootstrapSecret": ["instance-secret"]
+    }
+
+
+def test_webui_url_uses_resolved_base_without_rewriting_env_template(
+    monkeypatch,
+) -> None:
+    from nanobot.config.loader import resolve_config_env_vars
+
+    monkeypatch.setenv("NANOBOT_TEST_WEBUI_BASE", "/nanobot-env")
+    config = Config.model_validate(
+        {
+            "channels": {
+                "websocket": {
+                    "enabled": False,
+                    "base": "${NANOBOT_TEST_WEBUI_BASE}",
+                    "tokenIssueSecret": "already-set",
+                }
+            }
+        }
+    )
+    resolved = resolve_config_env_vars(config.model_copy(deep=True))
+
+    changed, generated = cli_commands._ensure_local_webui_channel(
+        config,
+        port=None,
+        yes=True,
+        resolved_config=resolved,
+    )
+    refreshed = resolve_config_env_vars(config.model_copy(deep=True))
+
+    assert changed is True
+    assert generated is False
+    assert config.channels.websocket["base"] == "${NANOBOT_TEST_WEBUI_BASE}"
+    assert cli_commands._webui_browser_url(refreshed) == (
+        "http://127.0.0.1:8765/nanobot-env/#/?bootstrapSecret=already-set"
+    )
+
+
 def test_webui_background_restarts_when_config_changes_and_gateway_is_running(
     monkeypatch,
     tmp_path: Path,

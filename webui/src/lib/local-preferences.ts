@@ -1,3 +1,5 @@
+import { scopedBrowserStorageKey, scopedLocalStorage } from "./browser-storage";
+
 export type LocalDensity = "comfortable" | "compact";
 export type LocalActivityMode = "auto" | "expanded";
 export type FileEditDisplayMode = "summary" | "diff" | "collapsed_diff";
@@ -10,7 +12,8 @@ export interface LocalPreferences {
   fileEditDisplayMode: FileEditDisplayMode;
 }
 
-export const LOCAL_PREFS_STORAGE_KEY = "nanobot-webui.settings-preferences";
+export const LOCAL_PREFS_STORAGE_KEY = scopedBrowserStorageKey("settings-preferences");
+const LEGACY_LOCAL_PREFS_STORAGE_KEY = "nanobot-webui.settings-preferences";
 export const LOCAL_PREFS_CHANGED_EVENT = "nanobot-webui.local-preferences-changed";
 
 export const DEFAULT_LOCAL_PREFS: LocalPreferences = {
@@ -27,7 +30,10 @@ export function normalizeFileEditDisplayMode(value: unknown): FileEditDisplayMod
 
 export function readLocalPreferences(): LocalPreferences {
   try {
-    const raw = window.localStorage.getItem(LOCAL_PREFS_STORAGE_KEY);
+    const raw = scopedLocalStorage.getItem(
+      "settings-preferences",
+      LEGACY_LOCAL_PREFS_STORAGE_KEY,
+    );
     if (!raw) return DEFAULT_LOCAL_PREFS;
     const parsed = JSON.parse(raw) as Partial<LocalPreferences>;
     return {
@@ -44,7 +50,7 @@ export function readLocalPreferences(): LocalPreferences {
 
 export function writeLocalPreferences(preferences: LocalPreferences): void {
   try {
-    window.localStorage.setItem(LOCAL_PREFS_STORAGE_KEY, JSON.stringify(preferences));
+    scopedLocalStorage.setItem("settings-preferences", JSON.stringify(preferences));
   } catch {
     // Browser-only preferences should never block settings.
   }

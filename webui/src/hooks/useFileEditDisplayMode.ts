@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import {
   LOCAL_PREFS_CHANGED_EVENT,
+  LOCAL_PREFS_STORAGE_KEY,
   normalizeFileEditDisplayMode,
   readLocalPreferences,
   type FileEditDisplayMode,
@@ -15,6 +16,14 @@ export function useFileEditDisplayMode(): FileEditDisplayMode {
 
   useEffect(() => {
     const refresh = () => setMode(readLocalPreferences().fileEditDisplayMode);
+    const refreshFromStorage = (event: StorageEvent) => {
+      if (
+        event.storageArea === window.localStorage
+        && event.key === LOCAL_PREFS_STORAGE_KEY
+      ) {
+        refresh();
+      }
+    };
     const refreshFromLocalPreferenceEvent = (event: Event) => {
       const detail = (event as CustomEvent<Partial<LocalPreferences> | undefined>).detail;
       setMode(
@@ -23,11 +32,11 @@ export function useFileEditDisplayMode(): FileEditDisplayMode {
           : readLocalPreferences().fileEditDisplayMode,
       );
     };
-    window.addEventListener("storage", refresh);
+    window.addEventListener("storage", refreshFromStorage);
     window.addEventListener("focus", refresh);
     window.addEventListener(LOCAL_PREFS_CHANGED_EVENT, refreshFromLocalPreferenceEvent);
     return () => {
-      window.removeEventListener("storage", refresh);
+      window.removeEventListener("storage", refreshFromStorage);
       window.removeEventListener("focus", refresh);
       window.removeEventListener(LOCAL_PREFS_CHANGED_EVENT, refreshFromLocalPreferenceEvent);
     };

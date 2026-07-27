@@ -2754,6 +2754,79 @@ _NO_HEADERS = _FakeReq()
 _LOCAL_BROWSER_REQ = _FakeReq({"Host": "127.0.0.1:8765"})
 
 
+@pytest.mark.asyncio
+async def test_base_mount_routes_webui_api_bootstrap_and_static(
+    bus: MagicMock,
+    tmp_path: Path,
+) -> None:
+    dist = tmp_path / "dist"
+    assets = dist / "assets"
+    assets.mkdir(parents=True)
+    (dist / "index.html").write_text("<html>nanobot</html>")
+    (assets / "app.js").write_text("export {}")
+    channel = _ch(
+        bus,
+        port=29941,
+        base="/nanobot",
+        path="/ws",
+        static_dist_path=dist,
+    )
+    try:
+        root = await _http_get("http://127.0.0.1:29941/nanobot/")
+        asset = await _http_get("http://127.0.0.1:29941/nanobot/assets/app.js")
+        bootstrap = await _http_get("http://127.0.0.1:29941/nanobot/webui/bootstrap")
+        api_token = channel.gateway.tokens.issue_api_token(300)
+        commands = await _http_get(
+            "http://127.0.0.1:29941/nanobot/api/commands",
+            headers={"Authorization": f"Bearer {api_token}"},
+        )
+        outside = await _http_get("http://127.0.0.1:29941/api/commands")
+        boundary = await _http_get("http://127.0.0.1:29941/nanobot2/api/commands")
+        missing_api = await _http_get("http://127.0.0.1:29941/nanobot/api")
+    finally:
+        await channel.stop()
+
+    assert root.status_code == 200
+    assert root.text == "<html>nanobot</html>"
+    assert asset.status_code == 200
+    assert asset.text == "export {}"
+    assert bootstrap.status_code == 200
+    assert bootstrap.json()["ws_path"] == "/nanobot/ws"
+    assert bootstrap.json()["ws_url"] == "ws://127.0.0.1:29941/nanobot/ws"
+    assert commands.status_code == 200
+    assert outside.status_code == 404
+    assert boundary.status_code == 404
+    assert missing_api.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_base_mount_applies_to_token_issue_route(bus: MagicMock) -> None:
+    channel = _ch(
+        bus,
+        port=29942,
+        base="/nanobot",
+        path="/ws",
+        tokenIssuePath="/auth/token",
+        tokenIssueSecret="secret",
+        websocketRequiresToken=True,
+    )
+    try:
+        response = await _http_get(
+            "http://127.0.0.1:29942/nanobot/auth/token",
+            headers={"Authorization": "Bearer secret"},
+        )
+        outside = await _http_get(
+            "http://127.0.0.1:29942/auth/token",
+            headers={"Authorization": "Bearer secret"},
+        )
+    finally:
+        await channel.stop()
+
+    assert response.status_code == 200
+    assert response.json()["token"].startswith("nbwt_")
+    assert outside.status_code == 404
+
+
 def test_local_browser_request_requires_loopback_host_and_forwarded_origin() -> None:
     from nanobot.webui.http_utils import is_local_browser_request
 
@@ -2789,6 +2862,59 @@ def test_local_browser_request_requires_loopback_host_and_forwarded_origin() -> 
         )
         is False
     )
+
+
+def test_workspace_controls_reject_loopback_reverse_proxy_remote_headers(
+    bus: MagicMock,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("nanobot.config.paths.get_data_dir", lambda: tmp_path)
+    channel = _ch(bus, port=29943)
+    token = channel.gateway.tokens.issue_api_token(300)
+    request = _FakeReq(
+        {
+            "Authorization": f"Bearer {token}",
+            "Host": "nanobot.example",
+            "X-Forwarded-For": "203.0.113.42",
+            "X-Real-IP": "203.0.113.42",
+        },
+        path="/api/workspaces",
+    )
+
+    response = channel.gateway.http._handle_workspaces(_LOCAL, request)
+
+    assert response.status_code == 200
+    payload = json.loads(response.body)
+    assert payload["controls"]["can_change_project"] is False
+    assert payload["controls"]["can_use_full_access"] is False
+
+
+@pytest.mark.asyncio
+async def test_websocket_handshake_caches_forwarded_aware_workspace_permissions(
+    bus: MagicMock,
+) -> None:
+    from websockets.datastructures import Headers
+    from websockets.http11 import Request
+
+    channel = _ch(bus, port=29944, base="/nanobot", path="/ws")
+    proxied = _FakeConn(("127.0.0.1", 12345))
+    request = Request(
+        "/nanobot/ws",
+        Headers(
+            [
+                ("Host", "nanobot.example"),
+                ("X-Forwarded-For", "203.0.113.42"),
+                ("Upgrade", "websocket"),
+                ("Connection", "upgrade"),
+            ]
+        ),
+    )
+
+    response = await channel._dispatch_http(proxied, request)
+
+    assert response is None
+    assert channel._workspace_controls_available(proxied) is False
 
 
 def test_wildcard_host_without_auth_raises_on_startup(bus: MagicMock) -> None:

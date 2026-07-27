@@ -1,4 +1,7 @@
-export const LOCALE_STORAGE_KEY = "nanobot.locale";
+import { scopedBrowserStorageKey, scopedLocalStorage } from "@/lib/browser-storage";
+
+export const LOCALE_STORAGE_KEY = scopedBrowserStorageKey("locale");
+const LEGACY_LOCALE_STORAGE_KEY = "nanobot.locale";
 
 export const supportedLocales = [
   { code: "en", label: "English", nativeLabel: "English" },
@@ -54,7 +57,7 @@ export function normalizeLocale(
 export function readStoredLocale(): SupportedLocale | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+    const raw = scopedLocalStorage.getItem("locale", LEGACY_LOCALE_STORAGE_KEY);
     return raw ? normalizeLocale(raw) : null;
   } catch {
     return null;
@@ -68,7 +71,7 @@ export function resolveInitialLocale(): SupportedLocale {
 export function persistLocale(locale: SupportedLocale): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+    scopedLocalStorage.setItem("locale", locale);
   } catch {
     // ignore storage errors
   }

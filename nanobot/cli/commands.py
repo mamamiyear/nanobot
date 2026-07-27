@@ -91,8 +91,10 @@ from nanobot.utils.restart import (  # noqa: E402
 )
 from nanobot.webui.build import (  # noqa: E402
     BuildMode,
+    WebUIBuildBaseMismatchError,
     WebUIBuildError,
     ensure_webui_bundle,
+    validate_webui_bundle_base,
 )
 from nanobot.webui.sidebar_state import read_webui_sidebar_state  # noqa: E402
 
@@ -954,6 +956,8 @@ def _prepare_webui_bundle_for_gateway(
     """Refresh or warn about stale bundled WebUI assets before gateway startup."""
     if not webui_static_dist or not _webui_channel_enabled(config):
         return
+    ws_cfg = _webui_config_dict(config)
+    expected_base = str(ws_cfg.get("base") or "/")
 
     def _print(message: str) -> None:
         console.print(f"[yellow]{escape(message)}[/yellow]")
@@ -962,11 +966,19 @@ def _prepare_webui_bundle_for_gateway(
         return typer.confirm(message, default=True)
 
     try:
-        ensure_webui_bundle(
+        status = ensure_webui_bundle(
             mode=mode,
             confirm=_confirm if mode == "prompt" else None,
             output=_print,
+            expected_base=expected_base,
         )
+        validate_webui_bundle_base(
+            dist_dir=status.dist_dir,
+            expected_base=expected_base,
+        )
+    except WebUIBuildBaseMismatchError as exc:
+        console.print(f"[red]Error: {escape(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
     except WebUIBuildError as exc:
         if mode == "warn":
             console.print(f"[yellow]Warning: {escape(str(exc))}[/yellow]")
@@ -1027,11 +1039,14 @@ def _webui_browser_url(config: Config) -> str:
     ws_cfg = _webui_config_dict(config)
     host = _host_for_local_browser(str(ws_cfg.get("host") or "127.0.0.1"))
     port = int(ws_cfg.get("port") or 8765)
-    base_url = f"http://{host}:{port}"
+    origin = f"http://{host}:{port}"
+    base = str(ws_cfg.get("base") or "/")
+    base_url = origin if base == "/" else f"{origin}{base}/"
     secret = _webui_bootstrap_secret(config)
     if not secret:
         return base_url
-    return f"{base_url}/#/?bootstrapSecret={quote(secret, safe='')}"
+    separator = "/" if base == "/" else ""
+    return f"{base_url}{separator}#/?bootstrapSecret={quote(secret, safe='')}"
 
 
 def _webui_display_url(url: str) -> str:
@@ -1042,14 +1057,26 @@ def _webui_display_url(url: str) -> str:
     return f"{prefix}{marker}<redacted>"
 
 
-def _ensure_local_webui_channel(config: Config, *, port: int | None, yes: bool) -> tuple[bool, bool]:
+def _ensure_local_webui_channel(
+    config: Config,
+    *,
+    port: int | None,
+    yes: bool,
+    resolved_config: Config | None = None,
+) -> tuple[bool, bool]:
     """Enable the local WebUI channel with safe localhost defaults."""
     from nanobot.channels.websocket.runtime import WebSocketConfig
 
-    current = getattr(config.channels, "websocket", None) or {}
-    model = WebSocketConfig.model_validate(current)
+    raw_current = getattr(config.channels, "websocket", None) or {}
+    resolved_current = (
+        getattr(resolved_config.channels, "websocket", None) or {}
+        if resolved_config is not None
+        else raw_current
+    )
+    model = WebSocketConfig.model_validate(resolved_current)
     changed = False
     generated_secret = False
+    updates: dict[str, Any] = {}
 
     needs_enable = not model.enabled
     needs_port = port is not None and model.port != port
@@ -1058,9 +1085,13 @@ def _ensure_local_webui_channel(config: Config, *, port: int | None, yes: bool) 
         return False, False
 
     target_port = port if port is not None else model.port
+    target_base = str(getattr(model, "base", "/") or "/")
+    target_url = f"http://127.0.0.1:{target_port}"
+    if target_base != "/":
+        target_url = f"{target_url}{target_base}/"
     console.print()
     console.print("[bold]Local WebUI setup[/bold]")
-    console.print(f"  URL: [cyan]http://127.0.0.1:{target_port}[/cyan]")
+    console.print(f"  URL: [cyan]{target_url}[/cyan]")
     console.print("  Bind: [cyan]127.0.0.1 only[/cyan] (not exposed to your LAN)")
     console.print("  Auth: generated WebUI bootstrap secret stored in config")
     console.print(
@@ -1070,24 +1101,36 @@ def _ensure_local_webui_channel(config: Config, *, port: int | None, yes: bool) 
 
     if not model.enabled:
         model.enabled = True
+        updates["enabled"] = True
         changed = True
     if model.host != "127.0.0.1":
         model.host = "127.0.0.1"
+        updates["host"] = "127.0.0.1"
         changed = True
     if port is not None and model.port != port:
         model.port = port
+        updates["port"] = port
         changed = True
     if not model.websocket_requires_token:
         model.websocket_requires_token = True
+        updates["websocketRequiresToken"] = True
         changed = True
     if needs_secret:
         import secrets
 
         model.token_issue_secret = secrets.token_urlsafe(32)
+        updates["tokenIssueSecret"] = model.token_issue_secret
         changed = True
         generated_secret = True
 
-    setattr(config.channels, "websocket", model.model_dump(by_alias=True, exclude_none=True))
+    if changed:
+        updated_raw = model.model_dump(by_alias=True, exclude_none=True)
+        if isinstance(raw_current, dict):
+            # Preserve unresolved ${ENV_VAR} placeholders for fields that the
+            # local setup did not intentionally change.
+            updated_raw.update(raw_current)
+        updated_raw.update(updates)
+        setattr(config.channels, "websocket", updated_raw)
     return changed, generated_secret
 
 
@@ -1464,13 +1507,19 @@ def webui(
             setup_config.agents.defaults.workspace = workspace
 
     try:
+        # Validate URL-facing fields from an env-resolved copy, while preserving
+        # placeholders in the config that is written back to disk.
+        resolved_setup_config = resolve_config_env_vars(setup_config.model_copy(deep=True))
         changed_webui, generated_bootstrap_secret = _ensure_local_webui_channel(
             setup_config,
             port=port,
             yes=yes,
+            resolved_config=resolved_setup_config,
         )
-        _warn_webui_bind_scope(setup_config)
-        webui_url = _webui_browser_url(setup_config)
+        if changed_webui:
+            resolved_setup_config = resolve_config_env_vars(setup_config.model_copy(deep=True))
+        _warn_webui_bind_scope(resolved_setup_config)
+        webui_url = _webui_browser_url(resolved_setup_config)
     except ValueError as exc:
         console.print(f"[red]Error: invalid WebUI channel config: {exc}[/red]")
         raise typer.Exit(1) from exc

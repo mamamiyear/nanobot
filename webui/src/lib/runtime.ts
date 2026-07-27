@@ -1,4 +1,5 @@
 import type { RuntimeCapabilities, RuntimeSurface } from "./types";
+import { scopedSessionStorage } from "./browser-storage";
 
 export interface RuntimeHost {
   surface: RuntimeSurface;
@@ -57,7 +58,8 @@ const HOST_WS_CLOSING = 2;
 const HOST_WS_CLOSED = 3;
 const LOOPBACK_HOST_PORT_PARAM = "nativeHostPort";
 const LOOPBACK_HOST_TOKEN_PARAM = "nativeHostToken";
-const LOOPBACK_HOST_STORAGE_KEY = "nanobot-webui.native-host";
+const LOOPBACK_HOST_STORAGE_KEY = "native-host";
+const LEGACY_LOOPBACK_HOST_STORAGE_KEY = "nanobot-webui.native-host";
 
 interface LoopbackHostConfig {
   port: number;
@@ -187,9 +189,12 @@ function consumeLoopbackHostConfig(): LoopbackHostConfig | null {
 
   try {
     if (config) {
-      window.sessionStorage.setItem(LOOPBACK_HOST_STORAGE_KEY, JSON.stringify(config));
+      scopedSessionStorage.setItem(LOOPBACK_HOST_STORAGE_KEY, JSON.stringify(config));
     } else {
-      window.sessionStorage.removeItem(LOOPBACK_HOST_STORAGE_KEY);
+      scopedSessionStorage.removeItem(
+        LOOPBACK_HOST_STORAGE_KEY,
+        LEGACY_LOOPBACK_HOST_STORAGE_KEY,
+      );
     }
   } catch {
     // The current page can still use the bridge when session storage is unavailable.
@@ -199,7 +204,10 @@ function consumeLoopbackHostConfig(): LoopbackHostConfig | null {
 
 function loadLoopbackHostConfig(): LoopbackHostConfig | null {
   try {
-    const raw = window.sessionStorage.getItem(LOOPBACK_HOST_STORAGE_KEY);
+    const raw = scopedSessionStorage.getItem(
+      LOOPBACK_HOST_STORAGE_KEY,
+      LEGACY_LOOPBACK_HOST_STORAGE_KEY,
+    );
     if (!raw) return null;
     return validateLoopbackHostConfig(JSON.parse(raw) as Partial<LoopbackHostConfig>);
   } catch {

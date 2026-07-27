@@ -14,6 +14,8 @@ Behavior:
 - Skips when `NANOBOT_SKIP_WEBUI_BUILD=1` is set.
 - Reuses `nanobot/web/dist/` only when it is already fresh, unless
   `NANOBOT_FORCE_WEBUI_BUILD=1` is set.
+- Treats a changed `VITE_BASE_PATH` (from the process or Vite `.env` files) as
+  stale and records the canonical base in the bundled dist.
 - Uses `bun` when available, otherwise falls back to `npm`. The chosen tool
   performs `install` followed by `run build`.
 """

@@ -450,7 +450,7 @@ describe("AgentActivityCluster", () => {
 
   it("keeps file edits flat even when the legacy diff preference is enabled", () => {
     localStorage.setItem(
-      "nanobot-webui.settings-preferences",
+      "nanobot-webui.v2:%2F:settings-preferences",
       JSON.stringify({ fileEditDisplayMode: "diff" }),
     );
 
@@ -494,13 +494,13 @@ describe("AgentActivityCluster", () => {
       expect(screen.getByTestId("activity-file-reference")).toHaveTextContent("src/app.tsx");
       expect(screen.getAllByTestId("activity-diff-pair")).toHaveLength(1);
     } finally {
-      localStorage.removeItem("nanobot-webui.settings-preferences");
+      localStorage.removeItem("nanobot-webui.v2:%2F:settings-preferences");
     }
   });
 
   it("does not render diff hunks inside the activity list", () => {
     localStorage.setItem(
-      "nanobot-webui.settings-preferences",
+      "nanobot-webui.v2:%2F:settings-preferences",
       JSON.stringify({ fileEditDisplayMode: "diff" }),
     );
 
@@ -549,13 +549,13 @@ describe("AgentActivityCluster", () => {
       expect(screen.queryByText("return newSecond;")).not.toBeInTheDocument();
       expect(screen.getByTestId("activity-file-reference")).toHaveTextContent("src/app.tsx");
     } finally {
-      localStorage.removeItem("nanobot-webui.settings-preferences");
+      localStorage.removeItem("nanobot-webui.v2:%2F:settings-preferences");
     }
   });
 
   it("summarizes long file edit diffs without an expansion control", () => {
     localStorage.setItem(
-      "nanobot-webui.settings-preferences",
+      "nanobot-webui.v2:%2F:settings-preferences",
       JSON.stringify({ fileEditDisplayMode: "diff" }),
     );
     const lines = Array.from({ length: 165 }, (_, index) => `line-${index + 1}`);
@@ -597,13 +597,13 @@ describe("AgentActivityCluster", () => {
       expect(screen.queryByText("line-1")).not.toBeInTheDocument();
       expect(screen.getByText("+165")).toBeInTheDocument();
     } finally {
-      localStorage.removeItem("nanobot-webui.settings-preferences");
+      localStorage.removeItem("nanobot-webui.v2:%2F:settings-preferences");
     }
   });
 
   it("ignores the legacy collapsed diff mode in the activity list", () => {
     localStorage.setItem(
-      "nanobot-webui.settings-preferences",
+      "nanobot-webui.v2:%2F:settings-preferences",
       JSON.stringify({ fileEditDisplayMode: "collapsed_diff" }),
     );
 
@@ -646,13 +646,13 @@ describe("AgentActivityCluster", () => {
       expect(screen.queryByText("return <New />;")).not.toBeInTheDocument();
       expect(screen.getByTestId("activity-file-reference")).toHaveTextContent("src/app.tsx");
     } finally {
-      localStorage.removeItem("nanobot-webui.settings-preferences");
+      localStorage.removeItem("nanobot-webui.v2:%2F:settings-preferences");
     }
   });
 
   it("opens the edited file directly instead of expanding a truncated diff", () => {
     localStorage.setItem(
-      "nanobot-webui.settings-preferences",
+      "nanobot-webui.v2:%2F:settings-preferences",
       JSON.stringify({ fileEditDisplayMode: "diff" }),
     );
     const onOpenFilePreview = vi.fn();
@@ -697,7 +697,7 @@ describe("AgentActivityCluster", () => {
 
       expect(onOpenFilePreview).toHaveBeenCalledWith("/repo/src/app.tsx");
     } finally {
-      localStorage.removeItem("nanobot-webui.settings-preferences");
+      localStorage.removeItem("nanobot-webui.v2:%2F:settings-preferences");
     }
   });
 
@@ -1603,7 +1603,7 @@ describe("AgentActivityCluster", () => {
 
   it("renders repeated edits for the same path as separate actions", () => {
     localStorage.setItem(
-      "nanobot-webui.settings-preferences",
+      "nanobot-webui.v2:%2F:settings-preferences",
       JSON.stringify({ fileEditDisplayMode: "diff" }),
     );
     try {
@@ -1687,7 +1687,7 @@ describe("AgentActivityCluster", () => {
       expect(screen.getAllByText("+6").length).toBeGreaterThan(0);
       expect(screen.getAllByText("-6").length).toBeGreaterThan(0);
     } finally {
-      localStorage.removeItem("nanobot-webui.settings-preferences");
+      localStorage.removeItem("nanobot-webui.v2:%2F:settings-preferences");
     }
   });
 

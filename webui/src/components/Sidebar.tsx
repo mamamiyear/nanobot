@@ -19,6 +19,7 @@ import type {
   SidebarViewState,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { webuiAssetUrl } from "@/lib/base-path";
 
 interface SidebarProps {
   sessions: ChatSummary[];
@@ -114,7 +115,7 @@ export function Sidebar(props: SidebarProps) {
           )}
         >
           <img
-            src="/brand/nanobot_mark.svg"
+            src={webuiAssetUrl("/brand/nanobot_mark.svg")}
             alt=""
             className="h-8 w-8 select-none object-contain"
             draggable={false}

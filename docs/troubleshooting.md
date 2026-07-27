@@ -182,6 +182,7 @@ nanobot gateway --verbose
 |---|---|
 | Port already in use | Change `gateway.port`, `channels.websocket.port`, or the `--port` CLI flag for the relevant command. |
 | WebUI opened on `18790` but shows nothing useful | Open `8765`; `18790` is the health endpoint. |
+| Gateway reports that the WebUI was built for another base | Rebuild that instance with `VITE_BASE_PATH` equal to `channels.websocket.base`. Each concurrently installed path-mounted instance needs its own build/dist. |
 | Config changes ignored | Restart the gateway. |
 | Startup pauses at `Installing optional feature` | An enabled channel is missing its Python dependencies. See [Slow Optional Channel Dependency Installation](#slow-optional-channel-dependency-installation). |
 | Heartbeat never runs | Keep the gateway running, add tasks under `<workspace>/HEARTBEAT.md` -> `## Active Tasks`, and make sure `gateway.heartbeat.enabled` is true. |
@@ -254,6 +255,19 @@ Open:
 ```text
 http://127.0.0.1:8765
 ```
+
+For a reverse-proxy mount such as `/nanobot-a`, set
+`channels.websocket.base: "/nanobot-a"`, rebuild with
+`VITE_BASE_PATH=/nanobot-a`, and open
+`https://your-domain.example/nanobot-a/`. The proxy must forward the original
+prefixed URI; an Nginx `proxy_pass` with a trailing `/` commonly strips it.
+
+If the page HTML loads but chunks or API calls return 404, compare all three
+values: the browser URL, the runtime `channels.websocket.base`, and
+`nanobot/web/dist/.nanobot-webui-build.json`. They must name the same canonical
+base. Also confirm that `/nanobot-a/assets/*`, `/nanobot-a/webui/bootstrap`,
+`/nanobot-a/api/*`, and the configured WebSocket endpoint all reach the same
+instance.
 
 If accessing from another device, bind the WebSocket channel to `0.0.0.0` and set `token` or `tokenIssueSecret`. The WebSocket channel refuses public binds without a token or token issue secret.
 

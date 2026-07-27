@@ -207,6 +207,7 @@ These variables are process-level switches. Set them in the same terminal, servi
 | `NANOBOT_EXTRAS` | unset | Docker build argument containing comma-separated Python extras such as `bedrock`. |
 | `NANOBOT_CHANNELS` | `whatsapp` | Docker build argument containing comma-separated channels whose manifest dependencies are preinstalled. |
 | `NANOBOT_API_URL` | `http://127.0.0.1:8765` | Gateway target for the Vite WebUI dev server proxy. |
+| `VITE_BASE_PATH` | `/` | Build-time mount prefix for the WebUI, for example `/nanobot-a`. It must match the target instance's `channels.websocket.base`. Vite also reads it from `webui/.env*`; the process environment has highest precedence. |
 
 Internal variables such as `NANOBOT_RESTART_*` and `NANOBOT_PATH_*` are set by nanobot itself and are not a supported user configuration surface.
 

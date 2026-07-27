@@ -40,6 +40,7 @@ from nanobot.webui.gateway_services import GatewayServices, build_gateway_servic
 from nanobot.webui.http_utils import (
     issue_route_secret_matches as _issue_route_secret_matches,
 )
+from nanobot.webui.http_utils import mount_base_path, normalize_base_path, strip_base_path
 from nanobot.webui.http_utils import (
     normalize_config_path as _normalize_config_path,
 )
@@ -295,6 +296,56 @@ def test_web_socket_config_path_must_start_with_slash() -> None:
         WebSocketConfig(path="bad")
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("/", "/"),
+        ("/nanobot", "/nanobot"),
+        ("/nanobot/", "/nanobot"),
+        ("/team/nanobot", "/team/nanobot"),
+    ],
+)
+def test_normalize_base_path(raw: str, expected: str) -> None:
+    assert normalize_base_path(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "nanobot",
+        "/nanobot//child",
+        "/nanobot/../child",
+        "/nanobot?debug=1",
+        "/nanobot#fragment",
+        r"/nanobot\child",
+        "/nanobot/%2e%2e",
+    ],
+)
+def test_normalize_base_path_rejects_ambiguous_values(raw: str) -> None:
+    with pytest.raises(ValueError):
+        normalize_base_path(raw)
+
+
+def test_mount_and_strip_base_path_respect_segment_boundaries() -> None:
+    assert mount_base_path("/", "/api") == "/api"
+    assert mount_base_path("/nanobot", "/") == "/nanobot"
+    assert mount_base_path("/nanobot", "/api") == "/nanobot/api"
+    assert strip_base_path("/nanobot/api/settings", "/nanobot") == "/api/settings"
+    assert strip_base_path("/nanobot", "/nanobot") == "/"
+    assert strip_base_path("/nanobot2/api", "/nanobot") is None
+
+
+def test_websocket_config_normalizes_base_and_mounts_ws_path() -> None:
+    channel = _ch(
+        MagicMock(),
+        base="/nanobot/",
+        path="/ws/",
+    )
+    assert channel.config.base == "/nanobot"
+    assert channel.config.path == "/ws"
+    assert channel._expected_path() == "/nanobot/ws"
+
+
 def test_ssl_context_requires_both_cert_and_key_files() -> None:
     bus = MagicMock()
     channel = WebSocketChannel(
@@ -312,6 +363,7 @@ def test_default_config_includes_safe_bind_and_streaming() -> None:
     assert defaults["host"] == "127.0.0.1"
     assert defaults["streaming"] is True
     assert defaults["allowFrom"] == ["*"]
+    assert defaults["base"] == "/"
     assert defaults.get("tokenIssuePath", "") == ""
 
 

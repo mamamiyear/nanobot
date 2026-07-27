@@ -1,7 +1,10 @@
 import type { BootstrapResponse } from "./types";
+import { WEBUI_BASE_PREFIX } from "./base-path";
+import { scopedLocalStorage } from "./browser-storage";
 import { fetchWithTimeout } from "./http";
 
-const SECRET_STORAGE_KEY = "nanobot-webui.bootstrap-secret";
+const SECRET_STORAGE_KEY = "bootstrap-secret";
+const LEGACY_SECRET_STORAGE_KEY = "nanobot-webui.bootstrap-secret";
 const URL_SECRET_PARAM = "bootstrapSecret";
 
 export class BootstrapAuthRequiredError extends Error {
@@ -14,29 +17,20 @@ export class BootstrapAuthRequiredError extends Error {
 /** Read a previously saved bootstrap secret from localStorage. */
 export function loadSavedSecret(): string {
   if (typeof window === "undefined") return "";
-  try {
-    return window.localStorage.getItem(SECRET_STORAGE_KEY) ?? "";
-  } catch {
-    return "";
-  }
+  return scopedLocalStorage.getItem(
+    SECRET_STORAGE_KEY,
+    LEGACY_SECRET_STORAGE_KEY,
+  ) ?? "";
 }
 
 /** Persist the bootstrap secret so page reloads don't re-prompt. */
 export function saveSecret(secret: string): void {
-  try {
-    window.localStorage.setItem(SECRET_STORAGE_KEY, secret);
-  } catch {
-    // ignore storage errors (private mode, etc.)
-  }
+  scopedLocalStorage.setItem(SECRET_STORAGE_KEY, secret);
 }
 
 /** Clear the saved bootstrap secret (sign out). */
 export function clearSavedSecret(): void {
-  try {
-    window.localStorage.removeItem(SECRET_STORAGE_KEY);
-  } catch {
-    // ignore
-  }
+  scopedLocalStorage.removeItem(SECRET_STORAGE_KEY, LEGACY_SECRET_STORAGE_KEY);
 }
 
 export function consumeUrlBootstrapSecret(): string {
@@ -67,7 +61,7 @@ export function consumeUrlBootstrapSecret(): string {
  * ``/webui/bootstrap`` endpoint.
  */
 export async function fetchBootstrap(
-  baseUrl: string = "",
+  baseUrl: string = WEBUI_BASE_PREFIX,
   secret: string = "",
   timeoutMs?: number,
 ): Promise<BootstrapResponse> {

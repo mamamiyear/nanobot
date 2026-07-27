@@ -15,6 +15,7 @@ from nanobot.webui.attachment_ingress import (
     AttachmentIngressResult,
     store_inbound_attachments,
 )
+from nanobot.webui.http_utils import mount_base_path
 from nanobot.webui.ingress_policy import AttachmentIngressLimits
 from nanobot.webui.media_api import (
     attach_signed_media_urls,
@@ -37,12 +38,14 @@ class WebUIMediaGateway:
         media_dir: Callable[[str | None], Path] | None = None,
         secret: bytes | None = None,
         attachment_limits: AttachmentIngressLimits | None = None,
+        base_path: str = "/",
     ) -> None:
         self.workspace_path = workspace_path
         self.logger = logger
         self._media_dir = media_dir or (lambda channel=None: get_media_dir(channel))
         self.secret = secret or secrets.token_bytes(32)
         self.attachment_limits = attachment_limits or AttachmentIngressLimits()
+        self.media_url_prefix = mount_base_path(base_path, "/api/media")
 
     def store_inbound_attachments(self, media: list[Any]) -> AttachmentIngressResult:
         """Validate and persist attachments from an inbound WebUI message."""
@@ -73,6 +76,7 @@ class WebUIMediaGateway:
             abs_path,
             secret=self.secret,
             media_dir=self._media_dir,
+            url_prefix=self.media_url_prefix,
         )
 
     def sign_or_stage_media_path(self, path: Path) -> dict[str, str] | None:
@@ -81,6 +85,7 @@ class WebUIMediaGateway:
             secret=self.secret,
             media_dir=self._media_dir,
             logger=self.logger,
+            url_prefix=self.media_url_prefix,
         )
 
     def rewrite_local_markdown_images(
@@ -93,7 +98,15 @@ class WebUIMediaGateway:
             text,
             workspace_path=workspace_path or self.workspace_path,
             sign_path=self.sign_or_stage_media_path,
+            media_url_prefix=self.media_url_prefix,
         )
+
+    def remount_media_url(self, url: str) -> str:
+        """Mount historical root-relative signed media URLs below this instance."""
+        legacy_prefix = "/api/media/"
+        if url.startswith(legacy_prefix):
+            return f"{self.media_url_prefix}/{url[len(legacy_prefix):]}"
+        return url
 
     def augment_media_urls(self, payload: dict[str, Any]) -> None:
         attach_signed_media_urls(payload, sign_path=self.sign_media_path)

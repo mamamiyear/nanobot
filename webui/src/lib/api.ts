@@ -35,6 +35,7 @@ import type {
   WebuiThreadPersistedPayload,
   WorkspaceScopePayload,
 } from "./types";
+import { WEBUI_BASE_PREFIX } from "./base-path";
 import { fetchWithTimeout } from "./http";
 
 const API_READ_TIMEOUT_MS = 20_000;
@@ -129,7 +130,7 @@ function splitKey(key: string): { channel: string; chatId: string } {
 
 export async function listSessions(
   token: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<ChatSummary[]> {
   type Row = {
     key: string;
@@ -171,7 +172,7 @@ export async function fetchWebuiThread(
   token: string,
   key: string,
   optionsOrBase?: FetchWebuiThreadOptions | string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<WebuiThreadPersistedPayload | null> {
   const options = typeof optionsOrBase === "string" ? undefined : optionsOrBase;
   const resolvedBase = typeof optionsOrBase === "string" ? optionsOrBase : base;
@@ -195,7 +196,7 @@ export async function fetchFilePreview(
   token: string,
   key: string,
   path: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<FilePreviewPayload> {
   const query = new URLSearchParams();
   query.set("path", path);
@@ -211,7 +212,7 @@ export async function fetchFilePreviewAvailability(
   token: string,
   key: string,
   path: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<boolean> {
   const query = new URLSearchParams();
   query.set("path", path);
@@ -228,7 +229,7 @@ export async function fetchFilePreviewAvailability(
 export async function fetchSessionAutomations(
   token: string,
   key: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SessionAutomationsPayload> {
   return request<SessionAutomationsPayload>(
     `${base}/api/sessions/${encodeURIComponent(key)}/automations`,
@@ -240,7 +241,7 @@ export async function fetchSessionAutomations(
 
 export async function fetchAutomations(
   token: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<AutomationsPayload> {
   return request<AutomationsPayload>(
     `${base}/api/webui/automations`,
@@ -254,7 +255,7 @@ export async function runAutomationAction(
   token: string,
   action: "enable" | "disable" | "delete" | "run",
   id: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<AutomationsPayload> {
   const query = new URLSearchParams();
   query.set("id", id);
@@ -270,7 +271,7 @@ export async function updateAutomation(
   token: string,
   id: string,
   values: AutomationUpdatePayload,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<AutomationsPayload> {
   const query = new URLSearchParams();
   query.set("id", id);
@@ -286,7 +287,7 @@ export async function updateAutomation(
 
 export async function fetchSkills(
   token: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SkillsPayload> {
   return request<SkillsPayload>(
     `${base}/api/webui/skills`,
@@ -299,7 +300,7 @@ export async function fetchSkills(
 export async function fetchSkillDetail(
   token: string,
   name: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SkillDetail> {
   return request<SkillDetail>(
     `${base}/api/webui/skills/${encodeURIComponent(name)}`,
@@ -313,7 +314,7 @@ export async function deleteSession(
   token: string,
   key: string,
   optionsOrBase?: { deleteAutomations?: boolean } | string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SessionDeleteResult> {
   const options = typeof optionsOrBase === "string" ? undefined : optionsOrBase;
   const resolvedBase = typeof optionsOrBase === "string" ? optionsOrBase : base;
@@ -328,7 +329,7 @@ export async function deleteSession(
 
 export async function fetchSettings(
   token: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SettingsPayload> {
   return request<SettingsPayload>(
     `${base}/api/settings`,
@@ -340,7 +341,7 @@ export async function fetchSettings(
 
 export async function fetchSettingsUsage(
   token: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<NonNullable<SettingsPayload["usage"]>> {
   return request<NonNullable<SettingsPayload["usage"]>>(
     `${base}/api/settings/usage`,
@@ -360,7 +361,7 @@ export interface VersionCheckResult {
 
 export async function checkVersion(
   token: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<VersionCheckResult> {
   return request<VersionCheckResult>(
     `${base}/api/settings/version-check`,
@@ -372,7 +373,7 @@ export async function checkVersion(
 
 export async function fetchWorkspaces(
   token: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<WorkspacesPayload> {
   return request<WorkspacesPayload>(
     `${base}/api/workspaces`,
@@ -384,7 +385,7 @@ export async function fetchWorkspaces(
 
 export async function fetchCliApps(
   token: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<CliAppsPayload> {
   return request<CliAppsPayload>(
     `${base}/api/settings/cli-apps`,
@@ -396,7 +397,7 @@ export async function fetchCliApps(
 
 export async function fetchInstalledCliApps(
   token: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<CliAppsPayload> {
   return request<CliAppsPayload>(
     `${base}/api/settings/cli-apps?installed_only=1`,
@@ -408,7 +409,7 @@ export async function fetchInstalledCliApps(
 
 export async function fetchNanobotFeatures(
   token: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<NanobotFeaturesPayload> {
   return request<NanobotFeaturesPayload>(
     `${base}/api/settings/nanobot-features`,
@@ -418,14 +419,14 @@ export async function fetchNanobotFeatures(
   );
 }
 
-export async function fetchApiService(token: string, base: string = ""): Promise<ApiServicePayload> {
+export async function fetchApiService(token: string, base: string = WEBUI_BASE_PREFIX): Promise<ApiServicePayload> {
   return request<ApiServicePayload>(`${base}/api/settings/api-service`, token);
 }
 
 export async function startApiService(
   token: string,
   values: { host: string; port: number; timeout: number; apiKey?: string },
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<ApiServicePayload> {
   const query = new URLSearchParams({
     host: values.host,
@@ -442,7 +443,7 @@ export async function startApiService(
   );
 }
 
-export async function stopApiService(token: string, base: string = ""): Promise<ApiServicePayload> {
+export async function stopApiService(token: string, base: string = WEBUI_BASE_PREFIX): Promise<ApiServicePayload> {
   return request<ApiServicePayload>(`${base}/api/settings/api-service/stop`, token);
 }
 
@@ -450,7 +451,7 @@ export async function enableNanobotFeature(
   token: string,
   name: string,
   options: { instanceId?: string } = {},
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<NanobotFeaturesPayload> {
   const query = new URLSearchParams();
   query.set("name", name);
@@ -465,7 +466,7 @@ export async function disableNanobotFeature(
   token: string,
   name: string,
   options: { instanceId?: string } = {},
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<NanobotFeaturesPayload> {
   const query = new URLSearchParams();
   query.set("name", name);
@@ -478,7 +479,7 @@ export async function disableNanobotFeature(
 
 export async function fetchPairingRequests(
   token: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<PairingPayload> {
   return request<PairingPayload>(
     `${base}/api/settings/pairing`,
@@ -492,7 +493,7 @@ export async function runPairingAction(
   token: string,
   action: "approve" | "deny",
   code: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<PairingPayload> {
   const query = new URLSearchParams();
   query.set("code", code);
@@ -511,7 +512,7 @@ export async function startChannelConnect(
     mode?: "replace" | "create";
     force?: boolean;
   } = {},
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<ChannelConnectPayload> {
   const query = new URLSearchParams();
   if (options.domain) query.set("domain", options.domain);
@@ -529,7 +530,7 @@ export async function pollChannelConnect(
   token: string,
   channel: string,
   sessionId: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<ChannelConnectPayload> {
   const query = new URLSearchParams();
   query.set("session_id", sessionId);
@@ -543,7 +544,7 @@ export async function cancelChannelConnect(
   token: string,
   channel: string,
   sessionId: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<ChannelConnectPayload> {
   const query = new URLSearchParams();
   query.set("session_id", sessionId);
@@ -558,7 +559,7 @@ export async function configureChannel(
   name: string,
   values: Record<string, string>,
   options: { enable?: boolean; instanceId?: string } = {},
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<ChannelConfigurePayload> {
   const query = new URLSearchParams();
   query.set("name", name);
@@ -580,7 +581,7 @@ export async function validateChannel(
   name: string,
   values: Record<string, string> = {},
   options: { instanceId?: string } = {},
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<ChannelValidationPayload> {
   const query = new URLSearchParams();
   query.set("name", name);
@@ -600,7 +601,7 @@ export async function runCliAppAction(
   token: string,
   action: "install" | "update" | "uninstall" | "test",
   name: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<CliAppsPayload> {
   const query = new URLSearchParams();
   query.set("name", name);
@@ -609,7 +610,7 @@ export async function runCliAppAction(
 
 export async function fetchMcpPresets(
   token: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<McpPresetsPayload> {
   return request<McpPresetsPayload>(
     `${base}/api/settings/mcp-presets`,
@@ -622,7 +623,7 @@ export async function fetchMcpPresets(
 export async function fetchProviderModels(
   token: string,
   provider: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<ProviderModelsPayload> {
   const query = new URLSearchParams();
   query.set("provider", provider);
@@ -639,7 +640,7 @@ export async function runMcpPresetAction(
   action: "enable" | "remove" | "test",
   name: string,
   values: Record<string, string> = {},
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<McpPresetsPayload> {
   const query = new URLSearchParams();
   query.set("name", name);
@@ -653,7 +654,7 @@ export async function runMcpPresetAction(
 export async function saveCustomMcpServer(
   token: string,
   values: Record<string, string>,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<McpPresetsPayload> {
   return request<McpPresetsPayload>(
     `${base}/api/settings/mcp-presets/custom`,
@@ -665,7 +666,7 @@ export async function saveCustomMcpServer(
 export async function importMcpConfig(
   token: string,
   config: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<McpPresetsPayload> {
   return request<McpPresetsPayload>(
     `${base}/api/settings/mcp-presets/import`,
@@ -678,7 +679,7 @@ export async function updateMcpServerTools(
   token: string,
   name: string,
   enabledTools: string[],
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<McpPresetsPayload> {
   return request<McpPresetsPayload>(
     `${base}/api/settings/mcp-presets/tools`,
@@ -689,7 +690,7 @@ export async function updateMcpServerTools(
 
 export async function listSlashCommands(
   token: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SlashCommand[]> {
   type Row = {
     command: string;
@@ -723,7 +724,7 @@ export async function listSlashCommands(
 
 export async function fetchSidebarState(
   token: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SidebarStatePayload> {
   return request<SidebarStatePayload>(
     `${base}/api/webui/sidebar-state`,
@@ -736,7 +737,7 @@ export async function fetchSidebarState(
 export async function updateSidebarState(
   token: string,
   state: SidebarStatePayload,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SidebarStatePayload> {
   const query = new URLSearchParams();
   query.set("state", JSON.stringify(state));
@@ -749,7 +750,7 @@ export async function updateSidebarState(
 export async function updateSettings(
   token: string,
   update: SettingsUpdate,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SettingsPayload> {
   const query = new URLSearchParams();
   if (update.modelPreset !== undefined) {
@@ -793,7 +794,7 @@ function appendModelGenerationSettings(
 export async function createModelConfiguration(
   token: string,
   configuration: ModelConfigurationCreate,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SettingsPayload> {
   const query = new URLSearchParams();
   if (configuration.name !== undefined) query.set("name", configuration.name);
@@ -810,7 +811,7 @@ export async function createModelConfiguration(
 export async function updateModelConfiguration(
   token: string,
   configuration: ModelConfigurationUpdate,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SettingsPayload> {
   const query = new URLSearchParams();
   query.set("name", configuration.name);
@@ -827,7 +828,7 @@ export async function updateModelConfiguration(
 export async function deleteModelConfiguration(
   token: string,
   name: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SettingsPayload> {
   const query = new URLSearchParams({ name });
   return request<SettingsPayload>(
@@ -838,7 +839,7 @@ export async function deleteModelConfiguration(
 
 export async function migrateModelConfigurations(
   token: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SettingsPayload> {
   return request<SettingsPayload>(
     `${base}/api/settings/model-configurations/migrate`,
@@ -849,7 +850,7 @@ export async function migrateModelConfigurations(
 export async function updateModelCallOrder(
   token: string,
   order: string[],
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SettingsPayload> {
   const query = new URLSearchParams({ order: JSON.stringify(order) });
   return request<SettingsPayload>(
@@ -861,7 +862,7 @@ export async function updateModelCallOrder(
 export async function updateProviderSettings(
   token: string,
   update: ProviderSettingsUpdate,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SettingsPayload> {
   const { provider, ...values } = update;
   const query = new URLSearchParams({ provider });
@@ -879,7 +880,7 @@ export async function updateProviderSettings(
 export async function createProviderSettings(
   token: string,
   update: ProviderCreationUpdate,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SettingsPayload> {
   return request<SettingsPayload>(
     `${base}/api/settings/provider/create`,
@@ -895,7 +896,7 @@ export async function createProviderSettings(
 export async function loginProviderOAuth(
   token: string,
   provider: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<ProviderOAuthLoginResult> {
   const query = new URLSearchParams();
   query.set("provider", provider);
@@ -911,7 +912,7 @@ export async function completeProviderOAuth(
   provider: string,
   flowId: string,
   authorizationCode?: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<ProviderOAuthCompletionResult> {
   const query = new URLSearchParams();
   query.set("provider", provider);
@@ -927,7 +928,7 @@ export async function completeProviderOAuth(
 export async function logoutProviderOAuth(
   token: string,
   provider: string,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SettingsPayload> {
   const query = new URLSearchParams();
   query.set("provider", provider);
@@ -940,7 +941,7 @@ export async function logoutProviderOAuth(
 export async function updateWebSearchSettings(
   token: string,
   update: WebSearchSettingsUpdate,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SettingsPayload> {
   const query = new URLSearchParams();
   query.set("provider", update.provider);
@@ -960,7 +961,7 @@ export async function updateWebSearchSettings(
 export async function updateNetworkSafetySettings(
   token: string,
   update: NetworkSafetySettingsUpdate,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SettingsPayload> {
   const query = new URLSearchParams();
   query.set("webui_allow_local_service_access", String(update.webuiAllowLocalServiceAccess));
@@ -974,7 +975,7 @@ export async function updateNetworkSafetySettings(
 export async function updateImageGenerationSettings(
   token: string,
   update: ImageGenerationSettingsUpdate,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SettingsPayload> {
   const query = new URLSearchParams();
   query.set("enabled", String(update.enabled));
@@ -992,7 +993,7 @@ export async function updateImageGenerationSettings(
 export async function updateTranscriptionSettings(
   token: string,
   update: TranscriptionSettingsUpdate,
-  base: string = "",
+  base: string = WEBUI_BASE_PREFIX,
 ): Promise<SettingsPayload> {
   const query = new URLSearchParams();
   query.set("enabled", String(update.enabled));

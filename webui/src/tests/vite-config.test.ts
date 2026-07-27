@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { webuiManualChunk } from "../../vite.config";
+import {
+  resolveWebuiVitePaths,
+  webuiManualChunk,
+} from "../../vite.config";
 
 describe("webuiManualChunk", () => {
   it("keeps Refractor's selector parser in the syntax highlighting chunk", () => {
@@ -35,5 +38,35 @@ describe("webuiManualChunk", () => {
 
   it("leaves language grammars as independently loaded chunks", () => {
     expect(webuiManualChunk("/repo/node_modules/refractor/lang/python.js")).toBeUndefined();
+  });
+});
+
+describe("resolveWebuiVitePaths", () => {
+  it("preserves the existing root-mounted paths by default", () => {
+    expect(resolveWebuiVitePaths()).toEqual({
+      runtimeBase: "/",
+      viteBase: "/",
+      hmrPath: "/__nanobot_vite_hmr",
+      apiPath: "/api",
+      authPath: "/auth",
+      bootstrapPath: "/webui",
+    });
+  });
+
+  it("mounts dev proxies and HMR beneath a non-root WebUI base", () => {
+    expect(resolveWebuiVitePaths("/nanobot-a/")).toEqual({
+      runtimeBase: "/nanobot-a",
+      viteBase: "/nanobot-a/",
+      hmrPath: "/nanobot-a/__nanobot_vite_hmr",
+      apiPath: "/nanobot-a/api",
+      authPath: "/nanobot-a/auth",
+      bootstrapPath: "/nanobot-a/webui",
+    });
+  });
+
+  it("rejects unsafe or ambiguous base paths", () => {
+    expect(() => resolveWebuiVitePaths("nanobot")).toThrow(/start with/);
+    expect(() => resolveWebuiVitePaths("/nanobot//nested")).toThrow(/unsafe segment/);
+    expect(() => resolveWebuiVitePaths("/nanobot?instance=a")).toThrow(/URL path/);
   });
 });

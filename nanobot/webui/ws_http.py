@@ -60,6 +60,9 @@ from nanobot.webui.http_utils import (
     issue_route_secret_matches as _issue_route_secret_matches,
 )
 from nanobot.webui.http_utils import (
+    mount_base_path as _mount_base_path,
+)
+from nanobot.webui.http_utils import (
     normalize_config_path as _normalize_config_path,
 )
 from nanobot.webui.http_utils import (
@@ -73,6 +76,9 @@ from nanobot.webui.http_utils import (
 )
 from nanobot.webui.http_utils import (
     safe_host_header as _safe_host_header,
+)
+from nanobot.webui.http_utils import (
+    strip_base_path as _strip_base_path,
 )
 from nanobot.webui.ingress_policy import WebUIIngressPolicy
 from nanobot.webui.media_gateway import WebUIMediaGateway
@@ -207,8 +213,15 @@ class GatewayHTTPHandler:
             channel_runtime_status=channel_runtime_status,
         )
 
-    def workspace_controls_available(self, connection: Any) -> bool:
-        return self._runtime_surface == "native" or _is_localhost(connection)
+    def workspace_controls_available(self, connection: Any, headers: Any | None = None) -> bool:
+        if self._runtime_surface == "native":
+            return True
+        if headers is None:
+            # WebSocket handshakes always cache a forwarded-header-aware
+            # decision before the connection loop starts. This fallback keeps
+            # direct/internal callers compatible when no HTTP request exists.
+            return _is_localhost(connection)
+        return _is_local_browser_request(connection, headers)
 
     # -- Token management ---------------------------------------------------
 
@@ -219,15 +232,19 @@ class GatewayHTTPHandler:
 
     async def dispatch(self, connection: Any, request: WsRequest) -> Any | None:
         """Route an HTTP request. Returns Response or None."""
-        got, _ = _parse_request_path(request.path)
+        public_path, _ = _parse_request_path(request.path)
+        got = _strip_base_path(public_path, self.config.base)
         started = time.perf_counter()
         response: Any | None = None
 
         try:
+            if got is None:
+                response = connection.respond(404, "Not Found")
+                return response
             response = await self._dispatch_resolved(connection, request, got)
             return response
         finally:
-            self._log_slow_http(got, response, started)
+            self._log_slow_http(got or public_path, response, started)
 
     async def _dispatch_resolved(
         self,
@@ -271,7 +288,7 @@ class GatewayHTTPHandler:
             return response
 
         # API 404 (never serve SPA for /api/ routes)
-        if got.startswith("/api/"):
+        if got == "/api" or got.startswith("/api/"):
             return _http_error(404, "API route not found")
 
         # Static SPA serving
@@ -343,7 +360,7 @@ class GatewayHTTPHandler:
         )
 
         ws_url = self._bootstrap_ws_url(request)
-        expected_path = _normalize_config_path(self.config.path)
+        expected_path = _mount_base_path(self.config.base, self.config.path)
         payload = {
             "token": token,
             "ws_path": expected_path,
@@ -369,7 +386,7 @@ class GatewayHTTPHandler:
         proto = proto.split(",", 1)[0].strip().lower()
         secure = proto in {"https", "wss"} or bool(self.config.ssl_certfile.strip())
         scheme = "wss" if secure else "ws"
-        expected_path = _normalize_config_path(self.config.path)
+        expected_path = _mount_base_path(self.config.base, self.config.path)
         return f"{scheme}://{host}{expected_path}"
 
     # -- Session routes -----------------------------------------------------
@@ -482,6 +499,7 @@ class GatewayHTTPHandler:
                 text,
                 workspace_path=scope.project_path,
             ),
+            remount_media_url=self.media.remount_media_url,
             session_messages=session_messages,
             limit=limit,
             direction=direction,
@@ -787,7 +805,10 @@ class GatewayHTTPHandler:
             return _http_error(401, "Unauthorized")
         return _http_json_response(
             self.workspaces.payload(
-                controls_available=self.workspace_controls_available(connection)
+                controls_available=self.workspace_controls_available(
+                    connection,
+                    request.headers,
+                )
             )
         )
 

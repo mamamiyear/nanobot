@@ -64,6 +64,21 @@ describe("webui API helpers", () => {
     );
   });
 
+  it("mounts API requests beneath an explicit WebUI base", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      headers: new Headers({ "Content-Type": "application/json" }),
+      json: async () => ({ sessions: [] }),
+    } as Response);
+
+    await listSessions("tok", "/nanobot-a");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/nanobot-a/api/sessions",
+      expect.objectContaining({ credentials: "same-origin" }),
+    );
+  });
+
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
