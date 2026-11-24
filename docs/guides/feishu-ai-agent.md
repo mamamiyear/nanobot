@@ -97,6 +97,16 @@ After approval, DM the bot again or mention it in a group chat:
 @nanobot Hello from Feishu
 ```
 
+## Automatic DM topics
+
+In **Channels → Feishu → the selected assistant → Advanced**, enable **Auto-thread direct messages** (单聊自动话题回复). Set `dmReplyInThread: true` on the matching entry in `channels.feishu.instances[]`; legacy single-bot configurations also accept `channels.feishu.dmReplyInThread`. The default is `false`, independently for each assistant. Keep the existing entry's credentials and permissions when merging this setting.
+
+After installing a version that includes this setting, run `nanobot onboard --refresh` to add missing fields to every Feishu instance, including disabled instances. Existing values and inherited settings are preserved. New configurations contain a default entry in `channels.feishu.instances[]` with `dmReplyInThread: false`; existing flat single-bot configurations retain their format. Onboarding does not upgrade the installed program.
+
+Each ordinary top-level private message opens a native topic without an @mention. Follow-ups share the root message's session; another top-level question gets a separate session. Top-level commands such as `/new` do not open topics. This does not require `replyToMessage`; group `replyToMessage`, `topicIsolation`, and sender approval are unchanged. Text, split cards, attachments, streaming cards, and ordinary replies after a streaming failure use the same topic.
+
+The adapter uses the [Reply Message API](https://open.feishu.cn/document/server-docs/im-v1/message/reply?lang=zh-CN) with `reply_in_thread=true`. Explicit unsupported-topic errors (`230071`, `230072`) are logged and downgraded to an ordinary reply, not reported as topic creation. If a follow-up only supplies `thread_id`, the adapter resolves its root through [topic history](https://open.feishu.cn/document/server-docs/im-v1/message/list); the app needs a message-read scope such as `im:message:readonly`. If that lookup fails, a warning is logged and the topic remains isolated, but the original session context cannot be restored for that turn.
+
 ## Security notes
 
 - Prefer pairing-only mode for first setup. Add `allowFrom` only when you want a static allowlist.

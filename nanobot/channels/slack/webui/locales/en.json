@@ -31,6 +31,13 @@
       "webhookPath": {
         "label": "Webhook path"
       },
+      "dm_replyInThread": {
+        "label": "Auto-thread direct messages",
+        "choices": {
+          "true": "On",
+          "false": "Off"
+        }
+      },
       "replyInThread": {
         "label": "Thread replies",
         "choices": {

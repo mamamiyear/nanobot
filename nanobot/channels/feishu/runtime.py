@@ -1020,6 +1020,8 @@ class FeishuChannel(BaseChannel):
         self._bot_open_id: str | None = None
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._reaction_ids: dict[str, str] = {}
+        # Per-instance aliases; thread IDs and message IDs are different API IDs.
+        self._dm_thread_roots: OrderedDict[tuple[str, str], str] = OrderedDict()
 
 
     async def login(self, force: bool = False) -> bool:
@@ -1897,6 +1899,59 @@ class FeishuChannel(BaseChannel):
             self.logger.debug("error fetching parent message {}: {}", message_id, e)
             return None
 
+    def _get_thread_root_sync(self, chat_id: str, thread_id: str) -> str | None:
+        from lark_oapi.api.im.v1 import ListMessageRequest
+
+        try:
+            request = (
+                ListMessageRequest.builder()
+                .container_id_type("thread")
+                .container_id(thread_id)
+                .sort_type("ByCreateTimeAsc")
+                .page_size(1)
+                .build()
+            )
+            response = self._client.im.v1.message.list(request)
+            if not response.success():
+                self.logger.warning(
+                    "Cannot resolve DM topic {}: code={}, msg={}",
+                    thread_id, response.code, response.msg,
+                )
+                return None
+            items = getattr(response.data, "items", None)
+            if not isinstance(items, list) or not items:
+                return None
+            first = cast(list[Any], items)[0]
+            if getattr(first, "chat_id", None) != chat_id:
+                return None
+            # The oldest item is either the root itself or a reply carrying root_id.
+            root_id = getattr(first, "root_id", None) or getattr(first, "message_id", None)
+            return root_id if isinstance(root_id, str) and root_id else None
+        except Exception as exc:
+            self.logger.warning("Cannot resolve DM topic {}: {}", thread_id, exc)
+            return None
+
+    async def _dm_thread_root(
+        self, chat_id: str, root_id: str | None, thread_id: str | None,
+    ) -> str | None:
+        if not thread_id:
+            return root_id
+        key = (chat_id, thread_id)
+        root_id = root_id or self._dm_thread_roots.get(key)
+        if not root_id:
+            root_id = await asyncio.to_thread(self._get_thread_root_sync, chat_id, thread_id)
+        if root_id:
+            self._dm_thread_roots[key] = root_id
+            self._dm_thread_roots.move_to_end(key)
+            while len(self._dm_thread_roots) > 1000:
+                self._dm_thread_roots.popitem(last=False)
+        else:
+            self.logger.warning(
+                "DM topic {} root unavailable in {}; using isolated topic context until resolved",
+                thread_id, chat_id,
+            )
+        return root_id
+
     def _reply_message_sync(self, parent_message_id: str, msg_type: str, content: str, *, reply_in_thread: bool = False) -> bool:
         from lark_oapi.api.im.v1 import ReplyMessageRequest, ReplyMessageRequestBody
 
@@ -1919,6 +1974,15 @@ class FeishuChannel(BaseChannel):
                     response.msg,
                     response.get_log_id(),
                 )
+                if reply_in_thread and response.code in {230071, 230072}:
+                    # These explicit rejections guarantee that no topic reply was
+                    # sent. Retry once as an ordinary reply, including CardKit.
+                    self.logger.warning(
+                        "Feishu topic reply unsupported for {}: code={}, msg={}; "
+                        "falling back to an ordinary reply (no topic created)",
+                        parent_message_id, response.code, response.msg,
+                    )
+                    return self._reply_message_sync(parent_message_id, msg_type, content)
                 if msg_type == "interactive":
                     return self._reply_interactive_fallback_sync(
                         parent_message_id,
@@ -2009,9 +2073,17 @@ class FeishuChannel(BaseChannel):
         return last_message_id
 
     def _should_use_reply_in_thread(self, metadata: dict[str, Any]) -> bool:
-        return metadata.get("chat_type", "group") == "group" and self.config.reply_to_message
+        if metadata.get("chat_type", "group") == "group":
+            return self.config.reply_to_message
+        return (
+            metadata.get("chat_type") == "p2p"
+            and self.config.dm_reply_in_thread
+            and (not metadata.get("is_command") or bool(metadata.get("root_id") or metadata.get("thread_id")))
+        )
 
     def _thread_reply_target(self, metadata: dict[str, Any]) -> str | None:
+        if metadata.get("chat_type") == "p2p" and self._should_use_reply_in_thread(metadata):
+            return metadata.get("dm_thread_root_id") or metadata.get("root_id") or metadata.get("message_id")
         if metadata.get("chat_type", "group") != "group":
             return None
         message_id = metadata.get("message_id")
@@ -2020,6 +2092,17 @@ class FeishuChannel(BaseChannel):
         if metadata.get("thread_id") or self.config.reply_to_message:
             return message_id
         return None
+
+    def _send_reply_or_create_sync(
+        self, receive_id_type: str, chat_id: str, msg_type: str, content: str,
+        *, reply_message_id: str | None = None, reply_in_thread: bool = False,
+    ) -> None:
+        if reply_message_id and self._reply_message_sync(
+            reply_message_id, msg_type, content, reply_in_thread=reply_in_thread,
+        ):
+            return
+        if not self._send_message_sync(receive_id_type, chat_id, msg_type, content):
+            raise RuntimeError(f"Feishu {msg_type} message was not delivered")
 
     def _send_message_sync(
         self, receive_id_type: str, receive_id: str, msg_type: str, content: str
@@ -2301,23 +2384,14 @@ class FeishuChannel(BaseChannel):
                     {"config": {"wide_screen_mode": True}, "elements": chunk},
                     ensure_ascii=False,
                 )
-                # Fallback replies stay in existing topics, but only create a
-                # new topic when reply-to-message is enabled.
-                fallback_msg_id = self._thread_reply_target(meta)
-                if fallback_msg_id:
-                    await loop.run_in_executor(
-                        None, partial(
-                            self._reply_message_sync,
-                            fallback_msg_id,
-                            "interactive",
-                            card,
-                            reply_in_thread=self._should_use_reply_in_thread(meta),
-                        ),
-                    )
-                else:
-                    await loop.run_in_executor(
-                        None, self._send_message_sync, rid_type, chat_id, "interactive", card
-                    )
+                await loop.run_in_executor(
+                    None, partial(
+                        self._send_reply_or_create_sync,
+                        rid_type, chat_id, "interactive", card,
+                        reply_message_id=self._thread_reply_target(meta),
+                        reply_in_thread=self._should_use_reply_in_thread(meta),
+                    ),
+                )
             return
 
         buf = self._stream_bufs.get(stream_key)
@@ -2408,18 +2482,14 @@ class FeishuChannel(BaseChannel):
                     ]},
                     ensure_ascii=False,
                 )
-                _th_msg_id = self._thread_reply_target(msg.metadata)
-                if _th_msg_id:
-                    await loop.run_in_executor(
-                        None, lambda: self._reply_message_sync(
-                            _th_msg_id, "interactive", card,
-                            reply_in_thread=self._should_use_reply_in_thread(msg.metadata),
-                        ),
-                    )
-                else:
-                    await loop.run_in_executor(
-                        None, self._send_message_sync, receive_id_type, msg.chat_id, "interactive", card
-                    )
+                await loop.run_in_executor(
+                    None, partial(
+                        self._send_reply_or_create_sync,
+                        receive_id_type, msg.chat_id, "interactive", card,
+                        reply_message_id=self._thread_reply_target(msg.metadata),
+                        reply_in_thread=self._should_use_reply_in_thread(msg.metadata),
+                    ),
+                )
                 return
 
             if (
@@ -2432,15 +2502,19 @@ class FeishuChannel(BaseChannel):
             ):
                 return
 
-            # Determine whether the first message should quote the user's message.
-            # Only the very first send (media or text) in this call uses reply; subsequent
-            # chunks/media fall back to plain create to avoid redundant quote bubbles.
-            # Always target message_id — the Feishu Reply API keeps replies in the
-            # same topic automatically when the target message is inside a topic.
+            # DM auto-topics keep every chunk/media in the root's topic, including
+            # the first turn before Feishu has supplied a thread_id. Preserve the
+            # existing first-send quote policy for other conversations.
             reply_message_id: str | None = None
             _msg_id = msg.metadata.get("message_id")
             has_thread_id = msg.metadata.get("thread_id")
-            if self.config.reply_to_message and progress_event is None:
+            dm_thread_reply = (
+                msg.metadata.get("chat_type") == "p2p"
+                and self._should_use_reply_in_thread(msg.metadata)
+            )
+            if dm_thread_reply:
+                reply_message_id = self._thread_reply_target(msg.metadata)
+            elif self.config.reply_to_message and progress_event is None:
                 reply_message_id = _msg_id
             elif has_thread_id:
                 reply_message_id = _msg_id
@@ -2448,37 +2522,14 @@ class FeishuChannel(BaseChannel):
             first_send = True
 
             def _do_send(m_type: str, content: str) -> None:
-                """Send via reply (first message) or create (subsequent).
-
-                Group chats only set reply_in_thread=True when
-                reply_to_message is enabled; otherwise a Reply API call for an
-                existing topic must not create a new topic.
-                """
                 nonlocal first_send
-                if reply_message_id:
-                    if has_thread_id:
-                        ok = self._reply_message_sync(
-                            reply_message_id, m_type, content,
-                            reply_in_thread=self._should_use_reply_in_thread(msg.metadata),
-                        )
-                        if ok:
-                            return
-                    elif first_send:
-                        first_send = False
-                        ok = self._reply_message_sync(
-                            reply_message_id, m_type, content,
-                            reply_in_thread=self._should_use_reply_in_thread(msg.metadata),
-                        )
-                        if ok:
-                            return
-                message_id = self._send_message_sync(
-                    receive_id_type,
-                    msg.chat_id,
-                    m_type,
-                    content,
+                target = reply_message_id if has_thread_id or dm_thread_reply or first_send else None
+                first_send = False
+                self._send_reply_or_create_sync(
+                    receive_id_type, msg.chat_id, m_type, content,
+                    reply_message_id=target,
+                    reply_in_thread=self._should_use_reply_in_thread(msg.metadata),
                 )
-                if not message_id:
-                    raise RuntimeError(f"Feishu {m_type} message was not delivered")
 
             for file_path in msg.media:
                 if not os.path.isfile(file_path):
@@ -2695,6 +2746,15 @@ class FeishuChannel(BaseChannel):
             parent_id = parent_id if isinstance(parent_id, str) else None
             root_id = root_id if isinstance(root_id, str) else None
             thread_id = thread_id if isinstance(thread_id, str) else None
+            is_command = normalize_command_text("\n".join(content_parts)).startswith("/")
+            dm_thread_root_id = None
+            dm_thread = chat_type == "p2p" and self.config.dm_reply_in_thread and (
+                not is_command or bool(root_id or thread_id)
+            )
+            if dm_thread:
+                dm_thread_root_id = await self._dm_thread_root(chat_id, root_id, thread_id)
+                if not thread_id and not dm_thread_root_id:
+                    dm_thread_root_id = message_id
 
             if parent_id and self._client:
                 loop = asyncio.get_running_loop()
@@ -2723,12 +2783,13 @@ class FeishuChannel(BaseChannel):
             # Build session key for conversation isolation.
             # If topic_isolation is True: each topic gets its own session via root_id/message_id.
             # If topic_isolation is False: all messages in group share the same session.
-            # Private chat: no override — same behavior as Telegram/Slack.
             if chat_type == "group":
                 if self.config.topic_isolation:
                     session_key = f"{self.name}:{chat_id}:{root_id or message_id}"
                 else:
                     session_key = f"{self.name}:{chat_id}"
+            elif dm_thread:
+                session_key = f"{self.name}:{chat_id}:{dm_thread_root_id or thread_id}"
             else:
                 session_key = None
 
@@ -2745,6 +2806,8 @@ class FeishuChannel(BaseChannel):
                     "parent_id": parent_id,
                     "root_id": root_id,
                     "thread_id": thread_id,
+                    "dm_thread_root_id": dm_thread_root_id,
+                    "is_command": is_command,
                 },
                 session_key=session_key,
                 is_dm=chat_type == "p2p",

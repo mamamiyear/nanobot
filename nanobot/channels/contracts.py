@@ -29,6 +29,7 @@ class ChannelValidationContext:
 # still validate third-party implementations at runtime.
 SetupValidator = Callable[[dict[str, Any], ChannelValidationContext], dict[str, Any]]
 DefaultConfigFactory = Callable[[], dict[str, Any]]
+ConfigRefresher = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
 InstanceSpecsFactory = Callable[..., Iterable["ChannelInstanceSpec"]]
 InstanceConfigUpdater = Callable[..., dict[str, Any]]
 RuntimeNameFactory = Callable[[str, str], str]
@@ -45,6 +46,7 @@ __all__ = [
     "SetupRequirement",
     "channel_feature_instances",
     "channel_default_config",
+    "channel_refresh_config",
     "channel_field_value",
     "channel_instance_config",
     "channel_instance_specs",
@@ -255,6 +257,7 @@ class ChannelManagementSpec:
 
     multi_instance: bool = False
     default_config: DefaultConfigFactory | None = None
+    refresh_config: ConfigRefresher | None = None
     instance_specs: InstanceSpecsFactory | None = None
     update_instance_config: InstanceConfigUpdater | None = None
     runtime_name: RuntimeNameFactory | None = None
@@ -311,6 +314,24 @@ def channel_default_config(plugin: ChannelPlugin) -> dict[str, Any]:
         raise TypeError(f"ChannelPlugin.management.default_config for '{plugin.name}' must return a dict")
     values = cast(dict[str, Any], values_raw)
     return cast(dict[str, Any], merge_missing_defaults(values, defaults))
+
+
+def channel_refresh_config(plugin: ChannelPlugin, section: Any = _MISSING) -> Any:
+    """Materialize onboarding defaults through the channel's persisted-state owner."""
+    from nanobot.config.loader import merge_missing_defaults
+
+    defaults = channel_default_config(plugin)
+    if section is _MISSING:
+        section = {}
+    refresher = plugin.management.refresh_config
+    if refresher is None:
+        return merge_missing_defaults(section, defaults)
+    if not isinstance(section, dict):
+        raise ValueError(f"Channel '{plugin.name}' configuration must be an object")
+    refreshed = cast(object, refresher(cast(dict[str, Any], section), defaults))
+    if not isinstance(refreshed, dict):
+        raise TypeError(f"ChannelPlugin.management.refresh_config for '{plugin.name}' must return a dict")
+    return cast(dict[str, Any], refreshed)
 
 
 def _assign_channel_field(values: dict[str, Any], field: str, value: Any) -> None:

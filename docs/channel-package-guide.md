@@ -789,6 +789,8 @@ setup=ChannelSetupSpec(
 
 String and secret fields default to `""`, list fields to `[]`, and boolean fields to `false` when no explicit default is declared. For non-setup or multi-instance persisted defaults, provide `ChannelManagementSpec.default_config` from a dependency-free package-local module.
 
+For instance envelopes or other channel-owned configuration shapes, provide `ChannelManagementSpec.refresh_config(section, defaults)`. Onboarding passes the existing section (or `{}` for a new channel) and the resolved defaults; the callback returns the complete section to persist. Preserve configured values and unknown fields, fill missing defaults at the correct instance level, and reject malformed data that cannot be preserved. Without this callback, onboarding recursively merges missing dictionary fields as before. Keep this callback free of runtime imports and network requests.
+
 ## Naming Convention
 
 | What | Format | Example |

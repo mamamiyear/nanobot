@@ -1687,6 +1687,15 @@ If you are adding a new transcription provider, see [`development.md`](./develop
 
 Open **Channels** in the sidebar, select the chat platform, and follow its credential or QR setup. Channel-specific options are in its **Advanced** section. Global channel output settings without a graphical control remain documented directly below.
 
+Slack and Feishu offer **Auto-thread direct messages** (单聊自动话题回复) in Advanced. It defaults to `false`. When enabled, ordinary top-level private messages start native topics without an @mention; follow-ups share that topic's session, and new top-level questions get independent sessions. Top-level commands such as `/new` do not open topics.
+
+| Channel | Configuration path | Independent settings |
+|---------|--------------------|----------------------|
+| Slack | `channels.slack.dm.replyInThread` | Channel `replyInThread` and history `threadContextLimit` retain their behavior; manual DM threads still work when disabled. |
+| Feishu / Lark | `channels.feishu.instances[].dmReplyInThread` | Set per assistant; legacy single-instance `channels.feishu.dmReplyInThread` is also accepted. Does not require `replyToMessage`; group `replyToMessage` and `topicIsolation` are unchanged. |
+
+Sender approval and group access are unaffected. See the [Slack guide](./guides/slack-ai-agent.md#automatic-dm-threads) and [Feishu guide](./guides/feishu-ai-agent.md#automatic-dm-topics) for delivery behavior and platform limitations.
+
 Global settings apply to all channels and have no graphical controls. Configure them under the `channels` section in `~/.nanobot/config.json`:
 
 <details>

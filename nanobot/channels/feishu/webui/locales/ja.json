@@ -56,6 +56,13 @@
       "toolHintPrefix": {
         "label": "ヒントの接頭辞"
       },
+      "dmReplyInThread": {
+        "label": "ダイレクトメッセージを自動でスレッド返信",
+        "choices": {
+          "true": "オン",
+          "false": "オフ"
+        }
+      },
       "replyToMessage": {
         "label": "メッセージに返信する",
         "choices": {

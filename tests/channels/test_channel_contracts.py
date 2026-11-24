@@ -20,6 +20,7 @@ from nanobot.channels.contracts import (
     channel_feature_instances,
     channel_instance_config,
     channel_instance_specs,
+    channel_refresh_config,
     channel_runtime_name,
     channel_set_config_enabled,
     channel_update_instance_config,
@@ -494,6 +495,7 @@ def test_single_instance_contract_preserves_plugin_owned_instances_field() -> No
     specs = channel_instance_specs(_SINGLE_PLUGIN, section)
 
     assert specs == [ChannelInstanceSpec("default", section)]
+    assert channel_refresh_config(_SINGLE_PLUGIN, section) == {**section, "token": ""}
 
 
 @pytest.mark.parametrize(

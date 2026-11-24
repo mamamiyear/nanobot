@@ -56,6 +56,13 @@
       "toolHintPrefix": {
         "label": "Hint prefix"
       },
+      "dmReplyInThread": {
+        "label": "Auto-thread direct messages",
+        "choices": {
+          "true": "On",
+          "false": "Off"
+        }
+      },
       "replyToMessage": {
         "label": "Reply to message",
         "choices": {

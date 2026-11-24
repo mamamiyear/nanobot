@@ -57,6 +57,7 @@ export default {
         { key: "channels.slack.botToken", section: "credentials" },
         { key: "channels.slack.useProxy", section: "connection", control: "switch" },
         { key: "channels.slack.groupPolicy", section: "behavior" },
+        { key: "channels.slack.dm.replyInThread", section: "behavior", control: "switch" },
       ],
     },
   },

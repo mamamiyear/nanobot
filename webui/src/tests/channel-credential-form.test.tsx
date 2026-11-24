@@ -26,6 +26,37 @@ const fields: ChannelConfigField[] = [
 ];
 
 describe("CredentialForm", () => {
+  it.each([
+    ["slack", "dm.replyInThread"],
+    ["feishu", "dmReplyInThread"],
+  ])("submits both DM thread settings for %s from Advanced", (channel, field) => {
+    const key = `channels.${channel}.${field}`;
+    const setup = channelSetup({
+      name: channel, display_name: channel, type: "channel", enabled: true,
+      webui: channel === "feishu" ? "webui/index.tsx" : "webui/index.ts",
+      installed: true, ready: true, status: "enabled",
+      install_supported: true, requires_restart: false,
+      setup: { fields: [{
+        key, field, kind: "bool", choices: [],
+        required: false, default_value: "false",
+      }] },
+    });
+    const fields = [...setup.fields ?? [], ...setup.manualFields ?? []];
+    expect(fields[0].optional).toBe(true);
+    expect(defaultChannelFieldValues(fields)).toEqual({ [key]: "false" });
+    const onChange = vi.fn();
+    const { rerender } = render(<CredentialForm fields={fields} values={{ [key]: "false" }}
+      visibleSecrets={{}} onChange={onChange} onToggleSecret={vi.fn()} />);
+    fireEvent.click(screen.getByRole("switch", { name: "Auto-thread direct messages" }));
+    expect(onChange).toHaveBeenLastCalledWith(key, "true");
+    expect(channelValuesForSubmit(fields, { [key]: "true" }, new Set([key]))).toEqual({ [key]: "true" });
+    rerender(<CredentialForm fields={fields} values={{ [key]: "true" }}
+      visibleSecrets={{}} onChange={onChange} onToggleSecret={vi.fn()} />);
+    fireEvent.click(screen.getByRole("switch", { name: "Auto-thread direct messages" }));
+    expect(onChange).toHaveBeenLastCalledWith(key, "false");
+    expect(channelValuesForSubmit(fields, { [key]: "false" }, new Set([key]))).toEqual({ [key]: "false" });
+  });
+
   it("preserves inherited notices and lets an explicit override return to the default", () => {
     const key = "channels.qq.showCompactionNotices";
     const setup = channelSetup({

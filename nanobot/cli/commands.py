@@ -246,9 +246,8 @@ def onboard(
 def _onboard_plugins(config_path: Path) -> None:
     import json
 
-    from nanobot.channels.contracts import channel_default_config
+    from nanobot.channels.contracts import channel_refresh_config
     from nanobot.channels.registry import discover_plugins
-    from nanobot.config.loader import merge_missing_defaults
 
     plugins = discover_plugins()
     if not plugins:
@@ -259,11 +258,10 @@ def _onboard_plugins(config_path: Path) -> None:
 
     channels = data.setdefault("channels", {})
     for name, plugin in plugins.items():
-        defaults = channel_default_config(plugin)
         if name not in channels:
-            channels[name] = defaults
+            channels[name] = channel_refresh_config(plugin)
         else:
-            channels[name] = merge_missing_defaults(channels[name], defaults)
+            channels[name] = channel_refresh_config(plugin, channels[name])
 
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)

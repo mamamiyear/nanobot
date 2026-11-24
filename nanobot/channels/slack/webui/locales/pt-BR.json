@@ -31,6 +31,13 @@
       "webhookPath": {
         "label": "Caminho do webhook"
       },
+      "dm_replyInThread": {
+        "label": "Responder mensagens diretas em tópicos",
+        "choices": {
+          "true": "Ativado",
+          "false": "Desativado"
+        }
+      },
       "replyInThread": {
         "label": "Respostas na thread",
         "choices": {

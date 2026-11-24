@@ -778,6 +778,62 @@ def test_webui_save_rejects_duplicate_feishu_ids_without_writing(monkeypatch, tm
     assert config_path.read_text(encoding="utf-8") == before
 
 
+@pytest.mark.parametrize("legacy_feishu", [False, True])
+def test_webui_dm_thread_settings_reach_the_correct_channel_runtime(monkeypatch, tmp_path, legacy_feishu):
+    from nanobot.config import loader
+    from nanobot.optional_features import optional_features_payload
+    from nanobot.webui.settings_routes import WebUISettingsRouter
+    from nanobot.webui.settings_services import WebUISettingsServices
+
+    _stub_channel_packages(monkeypatch, "slack", "feishu")
+    default = {"id": "default", "enabled": True, "appId": "cli_default", "appSecret": "test"}
+    feishu = default if legacy_feishu else {"instances": [
+        {**default, "dmReplyInThread": True},
+        {"id": "product", "enabled": True, "appId": "cli_product", "appSecret": "test"},
+    ]}
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"channels": {
+        "slack": {
+            "enabled": True, "appToken": "test-app", "botToken": "test-bot",
+            "dm": {"policy": "allowlist", "allowFrom": ["U_KEEP"]},
+        },
+        "feishu": feishu,
+    }}), encoding="utf-8")
+    monkeypatch.setattr(loader, "_current_config_path", config_path)
+    router = object.__new__(WebUISettingsRouter)
+    router.settings = WebUISettingsServices.create(config_path)
+    target_id = "default" if legacy_feishu else "product"
+    target_name = "feishu" if legacy_feishu else "feishu.product"
+
+    initial = ChannelManager(loader.load_config(config_path), MessageBus())
+    assert initial.channels["slack"].config.dm.reply_in_thread is False
+    assert initial.channels[target_name].config.dm_reply_in_thread is False
+    for enabled in (True, False):
+        value = str(enabled).lower()
+        router._save_channel_config_values("slack", {"channels.slack.dm.replyInThread": value})
+        router._save_channel_config_values(
+            "feishu", {"channels.feishu.dmReplyInThread": value}, instance_id=target_id,
+        )
+        config = loader.load_config(config_path)
+        manager = ChannelManager(config, MessageBus())
+        assert manager.channels["slack"].config.dm.reply_in_thread is enabled
+        assert json.loads(config_path.read_text())["channels"]["slack"]["dm"] == {
+            "policy": "allowlist", "allowFrom": ["U_KEEP"], "replyInThread": enabled,
+        }
+        assert manager.channels[target_name].config.dm_reply_in_thread is enabled
+        if not legacy_feishu:
+            assert manager.channels["feishu"].config.dm_reply_in_thread is True
+        payload = optional_features_payload(config=config)
+        features = {feature["name"]: feature for feature in payload["features"]}
+        assert features["slack"]["config_values"]["channels.slack.dm.replyInThread"] == value
+        instance = next(item for item in features["feishu"]["instances"] if item["id"] == target_id)
+        assert instance["config_values"]["channels.feishu.dmReplyInThread"] == value
+        for name, field_name in (("slack", "dm.replyInThread"), ("feishu", "dmReplyInThread")):
+            field = next(item for item in features[name]["setup"]["fields"] if item["field"] == field_name)
+            assert field["kind"] == "bool"
+            assert field["default_value"] == "false"
+
+
 def test_discover_plugins_skips_names_outside_enabled_set():
     from nanobot.channels.registry import discover_plugins
 

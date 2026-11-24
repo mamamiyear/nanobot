@@ -29,6 +29,7 @@ SETUP_SPEC = ChannelSetupSpec(
         "doneEmoji": field(snapshot=False),
         "toolHintPrefix": field(default="🔧", snapshot=False),
         "replyToMessage": field("bool", default=False, snapshot=False),
+        "dmReplyInThread": field("bool", default=False, snapshot=False),
         "streaming": field("bool", default=True, snapshot=False),
         "instanceId": field(writable=False, snapshot=False),
         "identityKey": field(writable=False, snapshot=False),

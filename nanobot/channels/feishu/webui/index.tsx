@@ -31,6 +31,7 @@ export default {
         { key: "channels.feishu.domain" },
         { key: "channels.feishu.groupPolicy" },
         { key: "channels.feishu.allowFrom" },
+        { key: "channels.feishu.dmReplyInThread", control: "switch" },
       ],
     },
   },

@@ -31,6 +31,13 @@
       "webhookPath": {
         "label": "Webhook パス"
       },
+      "dm_replyInThread": {
+        "label": "ダイレクトメッセージを自動でスレッド返信",
+        "choices": {
+          "true": "オン",
+          "false": "オフ"
+        }
+      },
       "replyInThread": {
         "label": "スレッドで返信",
         "choices": {

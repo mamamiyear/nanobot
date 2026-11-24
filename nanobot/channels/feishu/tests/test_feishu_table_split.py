@@ -7,7 +7,7 @@ table, allowing nanobot to send multiple cards instead of failing.
 """
 
 try:
-    from nanobot.channels import feishu
+    from nanobot.channels.feishu import runtime as feishu
     FEISHU_AVAILABLE = getattr(feishu, "FEISHU_AVAILABLE", False)
 except ImportError:
     FEISHU_AVAILABLE = False

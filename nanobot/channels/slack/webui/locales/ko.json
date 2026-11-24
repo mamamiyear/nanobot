@@ -31,6 +31,13 @@
       "webhookPath": {
         "label": "웹훅 경로"
       },
+      "dm_replyInThread": {
+        "label": "개인 메시지에 자동으로 스레드 답장",
+        "choices": {
+          "true": "켜기",
+          "false": "끄기"
+        }
+      },
       "replyInThread": {
         "label": "스레드 답변",
         "choices": {

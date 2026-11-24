@@ -573,6 +573,7 @@ If QR login is unavailable for your account, use manual setup below.
       "doneEmoji": "DONE",
       "toolHintPrefix": "🔧",
       "streaming": true,
+      "dmReplyInThread": false,
       "domain": "feishu"
     }
   }
@@ -784,7 +785,8 @@ nanobot plugins enable slack
       "appToken": "xapp-...",
       "dm": {
         "policy": "allowlist",
-        "allowFrom": ["YOUR_SLACK_USER_ID"]
+        "allowFrom": ["YOUR_SLACK_USER_ID"],
+        "replyInThread": false
       },
       "groupPolicy": "mention"
     }
@@ -805,6 +807,7 @@ The listed Slack user can DM the bot directly. Other DM senders receive a pairin
 > - `groupAllowFrom`: channel IDs the bot may respond in when `groupPolicy` is `"allowlist"`.
 > - `groupRequireMention`: when `true` and `groupPolicy` is `"allowlist"`, the bot only replies to channels in `groupAllowFrom` **and** only when @mentioned (instead of every message). No effect for `"mention"`/`"open"`. Use this to scope the bot to approved channels while keeping mention-only behavior.
 > - DM policy defaults to open. Set `"dm": {"enabled": false}` to disable DMs.
+> - `dm.replyInThread`: `false` by default. Enable **Auto-thread direct messages** in Advanced to open a native thread for each ordinary top-level DM; follow-ups share that thread's context. Commands such as `/new` stay in the main chat. Manual DM threads work with this option off. Channel `replyInThread`, `includeThreadContext`, and `threadContextLimit` are independent.
 
 </details>
 

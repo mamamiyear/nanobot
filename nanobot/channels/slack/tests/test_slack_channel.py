@@ -17,7 +17,12 @@ from nanobot.bus.events import OutboundMessage
 from nanobot.bus.outbound_events import ProgressEvent, outbound_message_for_event
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.manager import ChannelManager
-from nanobot.channels.slack.runtime import SLACK_MAX_MESSAGE_LEN, SlackChannel, SlackConfig
+from nanobot.channels.slack.runtime import (
+    SLACK_MAX_MESSAGE_LEN,
+    SlackChannel,
+    SlackConfig,
+    SlackDMConfig,
+)
 from nanobot.config.network import NetworkConfig
 
 
@@ -544,8 +549,9 @@ async def test_with_thread_context_fetches_replies_in_dm_thread() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dm_root_message_has_no_thread_ts_and_no_thread_session() -> None:
-    channel = SlackChannel(SlackConfig(enabled=True), MessageBus())
+@pytest.mark.parametrize("dm_config", [{}, {"replyInThread": False}], ids=["default", "off"])
+async def test_dm_root_message_has_no_thread_ts_and_no_thread_session(dm_config) -> None:
+    channel = SlackChannel({"enabled": True, "dm": dm_config}, MessageBus())
     channel._bot_user_id = "UBOT"
     channel._web_client = _FakeAsyncWebClient()
     channel._handle_message = AsyncMock()  # type: ignore[method-assign]
@@ -605,6 +611,62 @@ async def test_dm_thread_message_keeps_thread_ts_and_threaded_session() -> None:
     assert kwargs["metadata"]["slack"]["thread_ts"] == "1700000000.000100"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reply_in_thread", [False, True])
+async def test_auto_dm_threads_reuse_sessions_and_route_chunks_and_media(reply_in_thread: bool) -> None:
+    channel = SlackChannel(
+        SlackConfig(enabled=True, dm=SlackDMConfig(reply_in_thread=True), reply_in_thread=reply_in_thread),
+        MessageBus(),
+    )
+    web = _FakeAsyncWebClient()
+    channel._web_client = web
+    client = SimpleNamespace(send_socket_mode_response=AsyncMock())
+    inbound = []
+    for ts, thread_ts in [("1.000", None), ("2.000", "1.000"), ("3.000", None)]:
+        await channel._on_socket_request(client, SimpleNamespace(
+            type="events_api", envelope_id=ts,
+            payload={"event": {
+                "type": "message", "user": "U1", "channel": "D123", "channel_type": "im",
+                "text": "hello", "ts": ts, "thread_ts": thread_ts,
+            }},
+        ))
+        inbound.append(await channel.bus.consume_inbound())
+
+    assert [msg.session_key for msg in inbound] == [
+        "slack:D123:1.000", "slack:D123:1.000", "slack:D123:3.000",
+    ]
+    assert web.conversations_replies_calls == [{
+        "channel": "D123", "ts": "1.000", "limit": 20,
+    }]
+    await channel.send(OutboundMessage(
+        channel="slack", chat_id="D123", content="a" * (SLACK_MAX_MESSAGE_LEN + 20),
+        media=["/tmp/report.txt"], metadata=inbound[0].metadata,
+    ))
+    assert len(web.chat_post_calls) == 2
+    assert len(web.file_upload_calls) == 1
+    assert all(call["thread_ts"] == "1.000" for call in web.chat_post_calls + web.file_upload_calls)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", ["/new", "/help"])
+@pytest.mark.parametrize("thread_ts", [None, "1.000"])
+async def test_auto_dm_threads_keep_commands_in_their_current_context(command, thread_ts) -> None:
+    channel = SlackChannel(SlackConfig(dm=SlackDMConfig(reply_in_thread=True)), MessageBus())
+    channel._web_client = _FakeAsyncWebClient()
+    client = SimpleNamespace(send_socket_mode_response=AsyncMock())
+    await channel._on_socket_request(client, SimpleNamespace(
+        type="events_api", envelope_id="command",
+        payload={"event": {
+            "type": "message", "user": "U1", "channel": "D123", "channel_type": "im",
+            "text": command, "ts": "2.000", "thread_ts": thread_ts,
+        }},
+    ))
+    msg = await channel.bus.consume_inbound()
+    assert msg.content == command
+    assert msg.metadata["slack"]["thread_ts"] == thread_ts
+    assert msg.session_key == (f"slack:D123:{thread_ts}" if thread_ts else "slack:D123")
+
+
 def _channel_mention_request(envelope_id: str, ts: str) -> SimpleNamespace:
     return SimpleNamespace(
         type="events_api",
@@ -622,8 +684,9 @@ def _channel_mention_request(envelope_id: str, ts: str) -> SimpleNamespace:
 
 
 @pytest.mark.asyncio
-async def test_channel_root_message_uses_thread_scoped_session() -> None:
-    channel = SlackChannel(SlackConfig(enabled=True), MessageBus())
+@pytest.mark.parametrize("dm_threading", [False, True])
+async def test_channel_root_message_uses_thread_scoped_session(dm_threading: bool) -> None:
+    channel = SlackChannel(SlackConfig(enabled=True, dm=SlackDMConfig(reply_in_thread=dm_threading)), MessageBus())
     channel._bot_user_id = "UBOT"
     channel._web_client = _FakeAsyncWebClient()
     channel._handle_message = AsyncMock()  # type: ignore[method-assign]
@@ -661,8 +724,9 @@ async def test_channel_root_messages_do_not_share_one_session() -> None:
 
 
 @pytest.mark.asyncio
-async def test_channel_root_message_without_reply_in_thread_uses_channel_session() -> None:
-    channel = SlackChannel(SlackConfig(enabled=True, reply_in_thread=False), MessageBus())
+@pytest.mark.parametrize("dm_threading", [False, True])
+async def test_channel_root_message_without_reply_in_thread_uses_channel_session(dm_threading: bool) -> None:
+    channel = SlackChannel(SlackConfig(enabled=True, reply_in_thread=False, dm=SlackDMConfig(reply_in_thread=dm_threading)), MessageBus())
     channel._bot_user_id = "UBOT"
     channel._web_client = _FakeAsyncWebClient()
     channel._handle_message = AsyncMock()  # type: ignore[method-assign]

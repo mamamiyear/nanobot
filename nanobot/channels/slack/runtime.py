@@ -53,11 +53,12 @@ class _SlackWebAPI(Protocol):
 
 
 class SlackDMConfig(Base):
-    """Slack DM policy configuration."""
+    """Slack DM access and reply configuration."""
 
     enabled: bool = True
     policy: str = "open"
     allow_from: list[str] = Field(default_factory=list)
+    reply_in_thread: bool = False
 
 
 class SlackConfig(Base):
@@ -479,19 +480,21 @@ class SlackChannel(BaseChannel):
             return
 
         text = self._strip_bot_mention(text)
+        is_slash = text.strip().startswith("/")
 
         event_ts = event.get("ts")
         event_ts = event_ts if isinstance(event_ts, str) else None
         raw_thread_ts = event.get("thread_ts")
         raw_thread_ts = raw_thread_ts if isinstance(raw_thread_ts, str) else None
         thread_ts = raw_thread_ts
-        # In DMs we don't auto-open a thread on top-level messages (it would
-        # bury replies under "1 reply"). But if the user explicitly opened a
-        # thread inside the DM, raw_thread_ts is set and we honor it.
+        # Existing threads always keep their destination. DM auto-threading is
+        # independent of channel reply policy and excludes top-level commands.
         if (
-            self.config.reply_in_thread
-            and not thread_ts
-            and channel_type != "im"
+            not thread_ts
+            and (
+                (channel_type == "im" and self.config.dm.reply_in_thread and not is_slash)
+                or (channel_type != "im" and self.config.reply_in_thread)
+            )
         ):
             thread_ts = event_ts
         try:
@@ -506,9 +509,7 @@ class SlackChannel(BaseChannel):
             self.logger.debug("reactions_add failed: {}", e)
 
         # Thread-scoped session key whenever the turn lives in a thread: either the
-        # message arrived inside one (raw_thread_ts) or reply_in_thread opens a new
-        # thread for this channel message. DM roots have no thread_ts and keep the
-        # default per-chat session, so context doesn't bleed across thread boundaries.
+        # message arrived inside one or the configured policy opens a new thread.
         session_key = f"slack:{chat_id}:{thread_ts}" if thread_ts else None
         media_paths: list[str] = []
         file_markers: list[str] = []
@@ -522,7 +523,6 @@ class SlackChannel(BaseChannel):
             if marker:
                 file_markers.append(marker)
 
-        is_slash = text.strip().startswith("/")
         content = text if is_slash else await self._with_thread_context(
             text,
             chat_id=chat_id,

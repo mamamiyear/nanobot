@@ -89,6 +89,14 @@ Then DM the bot again, or mention it in a channel:
 @nanobot Hello from Slack
 ```
 
+## Automatic DM threads
+
+In **Channels → Slack → Advanced**, enable **Auto-thread direct messages** (单聊自动话题回复), or set `channels.slack.dm.replyInThread` to `true`. The default is `false`. Each ordinary top-level DM starts a native Slack thread without an @mention; follow-ups in that thread share its session, while a new top-level question starts a separate session. Top-level commands such as `/new` remain outside threads. Text chunks and attachments use the same thread.
+
+After installing a version that includes this setting, `nanobot onboard --refresh` fills missing `dm.replyInThread` values with `false` while preserving existing DM permissions and configured values. New configurations include this field under `channels.slack.dm`.
+
+This setting is independent of channel `replyInThread`. Existing manual DM threads still work when it is off, and `includeThreadContext` / `threadContextLimit`, pairing, and group access keep their existing behavior.
+
 ## Security notes
 
 - Keep `groupPolicy` as `mention` unless the bot is intentionally listening to every channel message.

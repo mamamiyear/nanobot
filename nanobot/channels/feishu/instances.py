@@ -195,6 +195,21 @@ def canonical_feishu_section(section: Any, defaults: dict[str, Any]) -> dict[str
     return {"instances": instances}
 
 
+def refresh_feishu_config(
+    section: dict[str, Any],
+    defaults: dict[str, Any],
+) -> dict[str, Any]:
+    """Fill every instance's defaults while retaining existing configuration shape."""
+    if not section:
+        return canonical_feishu_section(section, defaults)
+    if "instances" not in section:
+        return cast(dict[str, Any], merge_missing_defaults(section, defaults))
+    if not isinstance(section["instances"], list):
+        raise ValueError("Feishu instances must be a list")
+    canonical = canonical_feishu_section(section, defaults)
+    return {**section, "instances": canonical["instances"]}
+
+
 def upsert_feishu_instance(
     section: Any,
     defaults: dict[str, Any],
@@ -247,6 +262,7 @@ def update_feishu_instance_preserving_shape(
 FEISHU_MANAGEMENT = ChannelManagementSpec(
     multi_instance=True,
     default_config=feishu_default_config,
+    refresh_config=refresh_feishu_config,
     instance_specs=managed_feishu_instance_specs,
     update_instance_config=update_managed_feishu_instance,
     runtime_name=runtime_channel_name,

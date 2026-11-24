@@ -91,11 +91,13 @@ def test_feishu_config_reply_to_message_defaults_false() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("channel_name", ["feishu", "feishu.assistant-test"])
-async def test_pairing_failed_delivery_retries_plain_text_without_approving(channel_name):
+@pytest.mark.parametrize("dm_reply_in_thread", [False, True])
+async def test_pairing_failed_delivery_retries_plain_text_without_approving(channel_name, dm_reply_in_thread):
     from nanobot.pairing import store
 
     channel = _make_feishu_channel()
     channel.name = channel_name
+    channel.config.dm_reply_in_thread = dm_reply_in_thread
     channel.config.allow_from = []
     with patch.object(channel, "_send_message_sync", return_value=None) as send:
         await channel._on_message(_make_feishu_event(message_id="om_first"))

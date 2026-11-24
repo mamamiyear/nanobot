@@ -31,6 +31,13 @@
       "webhookPath": {
         "label": "Đường dẫn webhook"
       },
+      "dm_replyInThread": {
+        "label": "Tự động trả lời tin nhắn riêng trong luồng",
+        "choices": {
+          "true": "Bật",
+          "false": "Tắt"
+        }
+      },
       "replyInThread": {
         "label": "Trả lời trong luồng",
         "choices": {

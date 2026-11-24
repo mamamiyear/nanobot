@@ -56,6 +56,13 @@
       "toolHintPrefix": {
         "label": "Tiền tố gợi ý"
       },
+      "dmReplyInThread": {
+        "label": "Tự động trả lời tin nhắn riêng trong luồng",
+        "choices": {
+          "true": "Bật",
+          "false": "Tắt"
+        }
+      },
       "replyToMessage": {
         "label": "Trả lời tin nhắn",
         "choices": {

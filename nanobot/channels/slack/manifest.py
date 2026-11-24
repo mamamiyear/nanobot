@@ -21,6 +21,7 @@ SETUP_SPEC = ChannelSetupSpec(
         "dm.enabled": field("bool", default=True),
         "dm.policy": field("enum", choices={"open", "allowlist"}, default="open"),
         "dm.allowFrom": field("list"),
+        "dm.replyInThread": field("bool", default=False),
         "useProxy": field("bool", default=False),
     },
     required=required_fields("appToken", "botToken"),

@@ -60,6 +60,164 @@ def test_onboard_refresh_backfills_missing_channel_fields(tmp_path, monkeypatch)
     assert saved["channels"]["qq"]["msgFormat"] == "plain"
 
 
+@pytest.fixture
+def onboard_channel_config(tmp_path, monkeypatch):
+    from nanobot.channels.registry import load_channel_plugin
+
+    config_path = tmp_path / "config.json"
+    monkeypatch.setattr("nanobot.config.loader.get_config_path", lambda: config_path)
+    monkeypatch.setattr(
+        "nanobot.cli.commands.get_workspace_path", lambda _workspace=None: tmp_path / "workspace"
+    )
+    plugins = {name: load_channel_plugin(name) for name in ("slack", "feishu")}
+    monkeypatch.setattr("nanobot.channels.registry.discover_plugins", lambda _names=None: plugins)
+    monkeypatch.setattr(
+        "nanobot.channels.registry.discover_all",
+        lambda: pytest.fail("onboarding must not import channel runtimes"),
+    )
+    return config_path
+
+
+@pytest.mark.parametrize("existing_config", [False, True], ids=["new-file", "new-channel"])
+def test_onboard_creates_feishu_instance_defaults(onboard_channel_config, existing_config):
+    from typer.testing import CliRunner
+
+    from nanobot.cli.commands import app
+
+    config_path = onboard_channel_config
+    if existing_config:
+        config_path.write_text(json.dumps({"channels": {"slack": {"dm": {"replyInThread": True}}}}))
+
+    result = CliRunner().invoke(app, ["onboard", "--refresh"])
+
+    assert result.exit_code == 0, result.output
+    channels = json.loads(config_path.read_text())["channels"]
+    assert channels["slack"]["dm"]["replyInThread"] is existing_config
+    assert set(channels["feishu"]) == {"instances"}
+    [instance] = channels["feishu"]["instances"]
+    assert instance["id"] == "default"
+    assert instance["enabled"] is False
+    assert instance["dmReplyInThread"] is False
+
+
+@pytest.mark.parametrize("configured", [None, False, True], ids=["missing", "off", "on"])
+def test_onboard_refresh_backfills_slack_dm_reply_setting(onboard_channel_config, configured):
+    from typer.testing import CliRunner
+
+    from nanobot.cli.commands import app
+
+    dm = {"enabled": True, "policy": "allowlist", "allowFrom": ["U_KEEP"]}
+    if configured is not None:
+        dm["replyInThread"] = configured
+    config_path = onboard_channel_config
+    config_path.write_text(json.dumps({"channels": {"slack": {
+        "replyInThread": False, "botToken": "saved-token", "dm": dm,
+    }}}))
+
+    result = CliRunner().invoke(app, ["onboard", "--refresh"])
+
+    assert result.exit_code == 0, result.output
+    saved = json.loads(config_path.read_text())["channels"]["slack"]
+    assert saved["dm"] == {**dm, "replyInThread": bool(configured)}
+    assert saved["replyInThread"] is False
+    assert saved["botToken"] == "saved-token"
+
+
+@pytest.mark.parametrize("inherited", [False, True], ids=["default-off", "inherited-on"])
+def test_onboard_refresh_backfills_each_feishu_instance(onboard_channel_config, inherited):
+    from typer.testing import CliRunner
+
+    from nanobot.channels.contracts import channel_instance_specs
+    from nanobot.channels.registry import load_channel_plugin
+    from nanobot.cli.commands import app
+
+    config_path = onboard_channel_config
+    original = {
+        "enabled": True,
+        "allowFrom": ["shared-user"],
+        "instances": [
+            {"id": "default", "appId": "cli_one", "appSecret": "${FEISHU_SECRET}", "dmReplyInThread": True},
+            {"id": "support", "enabled": False, "dmReplyInThread": False, "allowFrom": []},
+            {"id": "sales", "appId": "cli_sales", "name": "Sales", "customSetting": "keep"},
+        ],
+    }
+    if inherited:
+        original["dmReplyInThread"] = True
+    config_path.write_text(json.dumps({"channels": {"feishu": original}}))
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["onboard", "--refresh"])
+
+    assert result.exit_code == 0, result.output
+    saved = json.loads(config_path.read_text())["channels"]["feishu"]
+    assert saved["enabled"] is True
+    assert saved["allowFrom"] == ["shared-user"]
+    assert [item["dmReplyInThread"] for item in saved["instances"]] == [True, False, inherited]
+    assert [item["enabled"] for item in saved["instances"]] == [True, False, True]
+    for before, after in zip(original["instances"], saved["instances"], strict=True):
+        assert before.items() <= after.items()
+
+    specs = channel_instance_specs(load_channel_plugin("feishu"), saved)
+    assert [(spec.instance_id, spec.config["dmReplyInThread"]) for spec in specs] == [
+        ("default", True), ("sales", inherited)
+    ]
+    assert runner.invoke(app, ["onboard", "--refresh"]).exit_code == 0
+    assert json.loads(config_path.read_text())["channels"]["feishu"] == saved
+
+
+@pytest.mark.parametrize("configured", [None, False, True], ids=["missing", "off", "on"])
+def test_onboard_refresh_preserves_legacy_feishu_config(onboard_channel_config, configured):
+    from typer.testing import CliRunner
+
+    from nanobot.cli.commands import app
+
+    original = {"enabled": True, "appId": "cli_legacy", "appSecret": "saved", "allowFrom": ["user"]}
+    if configured is not None:
+        original["dmReplyInThread"] = configured
+    config_path = onboard_channel_config
+    config_path.write_text(json.dumps({"channels": {"feishu": original}}))
+
+    result = CliRunner().invoke(app, ["onboard"], input="n\n")
+
+    assert result.exit_code == 0, result.output
+    saved = json.loads(config_path.read_text())["channels"]["feishu"]
+    assert "instances" not in saved
+    assert saved["dmReplyInThread"] is bool(configured)
+    assert original.items() <= saved.items()
+
+
+def test_onboard_refresh_preserves_empty_feishu_instances(onboard_channel_config):
+    from typer.testing import CliRunner
+
+    from nanobot.cli.commands import app
+
+    config_path = onboard_channel_config
+    config_path.write_text(json.dumps({"channels": {"feishu": {"instances": []}}}))
+
+    result = CliRunner().invoke(app, ["onboard", "--refresh"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(config_path.read_text())["channels"]["feishu"] == {"instances": []}
+
+
+@pytest.mark.parametrize(
+    "instances",
+    ["invalid", [{"id": "same", "appId": "one"}, {"id": "same", "appId": "two"}]],
+    ids=["invalid-list", "duplicate-id"],
+)
+def test_onboard_plugin_refresh_keeps_invalid_feishu_config_intact(onboard_channel_config, instances):
+    from nanobot.cli.commands import _onboard_plugins
+
+    config_path = onboard_channel_config
+    original = json.dumps({"channels": {"feishu": {"instances": instances}}})
+    config_path.write_text(original)
+
+    with pytest.raises(ValueError, match="instances must be a list|duplicate Feishu instance id"):
+        _onboard_plugins(config_path)
+
+    assert config_path.read_text() == original
+
+
 def test_save_config_rewrites_legacy_my_tool_keys(tmp_path) -> None:
     config_path = tmp_path / "config.json"
     config_path.write_text(

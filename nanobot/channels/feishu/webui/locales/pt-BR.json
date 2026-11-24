@@ -56,6 +56,13 @@
       "toolHintPrefix": {
         "label": "Prefixo de dica"
       },
+      "dmReplyInThread": {
+        "label": "Responder mensagens diretas em tópicos",
+        "choices": {
+          "true": "Ativado",
+          "false": "Desativado"
+        }
+      },
       "replyToMessage": {
         "label": "Responder à mensagem",
         "choices": {

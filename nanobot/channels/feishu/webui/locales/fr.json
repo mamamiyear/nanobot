@@ -56,6 +56,13 @@
       "toolHintPrefix": {
         "label": "Préfixe d’indication"
       },
+      "dmReplyInThread": {
+        "label": "Réponses automatiques en fil privé",
+        "choices": {
+          "true": "Activé",
+          "false": "Désactivé"
+        }
+      },
       "replyToMessage": {
         "label": "Répondre au message",
         "choices": {

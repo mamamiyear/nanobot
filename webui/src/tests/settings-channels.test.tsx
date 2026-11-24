@@ -102,6 +102,7 @@ function channelSetupContract(
           }),
           field("allowFrom", "list"),
           field("topicIsolation", "bool"),
+          field("dmReplyInThread", "bool", { defaultValue: "false" }),
         ],
         requirements: [
           { alternatives: [["channels.feishu.appId"]] },
@@ -1118,11 +1119,13 @@ describe("Settings channels", () => {
     expect(support.getByLabelText("App ID")).toBeVisible();
     expect(support.getByLabelText("App ID")).toHaveValue("cli_default");
     expect(support.getByRole("group", { name: "Topic sessions" })).toBeVisible();
+    expect(support.getByRole("switch", { name: "Auto-thread direct messages" })).not.toBeChecked();
 
     fireEvent.click(productAdvanced);
     expect(supportAdvanced).toHaveAttribute("aria-expanded", "false");
     expect(productAdvanced).toHaveAttribute("aria-expanded", "true");
     expect(product.getByLabelText("App ID")).toHaveValue("cli_product");
+    fireEvent.click(product.getByRole("switch", { name: "Auto-thread direct messages" }));
     fireEvent.change(product.getByLabelText("App ID"), { target: { value: "cli_updated" } });
     const featureRequests = () => vi.mocked(fetch).mock.calls
       .filter(([input]) => String(input) === "/api/settings/nanobot-features").length;
@@ -1141,7 +1144,10 @@ describe("Settings channels", () => {
         name: "feishu",
         instance_id: "product",
         enable: false,
-        values: expect.objectContaining({ "channels.feishu.appId": "cli_updated" }),
+        values: expect.objectContaining({
+          "channels.feishu.appId": "cli_updated",
+          "channels.feishu.dmReplyInThread": "true",
+        }),
       }),
       150_000,
     ));

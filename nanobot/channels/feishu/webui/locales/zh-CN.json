@@ -57,6 +57,13 @@
       "toolHintPrefix": {
         "label": "提示前缀"
       },
+      "dmReplyInThread": {
+        "label": "单聊自动话题回复",
+        "choices": {
+          "true": "开启",
+          "false": "关闭"
+        }
+      },
       "replyToMessage": {
         "label": "引用回复",
         "choices": {

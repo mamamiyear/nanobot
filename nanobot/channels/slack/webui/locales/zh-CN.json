@@ -31,6 +31,13 @@
       "webhookPath": {
         "label": "Webhook 路径"
       },
+      "dm_replyInThread": {
+        "label": "单聊自动话题回复",
+        "choices": {
+          "true": "开启",
+          "false": "关闭"
+        }
+      },
       "replyInThread": {
         "label": "话题回复",
         "choices": {
